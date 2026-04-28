@@ -57,7 +57,6 @@ class Controller:
         # Empêche les changements trop brusques qui feraient basculer la mouche sur une bosse ou un obstacle, en limitant les variations de gain d'une étape à l'autre.
 
 
-
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
     
