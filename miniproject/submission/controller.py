@@ -4,13 +4,9 @@ from miniproject.simulation import MiniprojectSimulation
 def odor_intensity_to_control_signal(
     odor_intensities,
     attractive_gain=-500,
-    aversive_gain=80,
 ):
     attractive_intensities = np.average(
-        odor_intensities[:, 0].reshape(2, 2), axis=0, weights=[9, 1]
-    )
-    aversive_intensities = np.average(
-        odor_intensities[:, 1].reshape(2, 2), axis=0, weights=[9, 1]
+        odor_intensities[:, 0].reshape(2, 2), axis=0, weights=[5, 5]
     )
     attractive_bias = (
         attractive_gain
@@ -19,14 +15,8 @@ def odor_intensity_to_control_signal(
         if attractive_intensities.mean() != 0
         else 0
     )
-    aversive_bias = (
-        aversive_gain
-        * (aversive_intensities[0] - aversive_intensities[1])
-        / aversive_intensities.mean()
-        if aversive_intensities.mean() != 0
-        else 0
-    )
-    effective_bias = attractive_bias + aversive_bias
+    
+    effective_bias = attractive_bias
     effective_bias_norm = np.tanh(effective_bias**2) * np.sign(effective_bias)
 
     control_signal = np.ones(2)
