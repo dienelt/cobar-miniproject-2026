@@ -77,13 +77,13 @@ class Controller:
         # --- Turn around itself ---
         # if plume behind the fly, make it turn around itself instead of moving forward in a big circle
         
-
+        
         # --- Avoid obstacles ---
         # if obstacle detected, modify drives to avoid collision
 
         # --- Avoid dragonfly ---
         # if dragonfly detected, modify drives to avoid it
-        
+
 
         # --- Smoothing and control ---
         # Empêche les changements trop brusques qui feraient basculer la mouche sur une bosse ou un obstacle, en limitant les variations de gain d'une étape à l'autre.
