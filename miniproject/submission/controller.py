@@ -66,21 +66,30 @@ class Controller:
         drive_r = base_speed + delta
         drives = np.clip(np.array([drive_l, drive_r]), 0.3, 1.5) # ensure drives are within valid range
 
+        # Stuck mode :
         # --- Stuck case ---
-        # if stuck, apply a different control strategy (e.g., reverse or turn in place
-        
+        # if stuck, reverse the control signal and then turn around itself to try to get unstuck
+
+        # Normal mode :
         # --- Odor plume following ---
         # use olfaction to follow the odor plume towards the source
+
+        # --- Turn around itself ---
+        # if plume behind the fly, make it turn around itself instead of moving forward in a big circle
+        
 
         # --- Avoid obstacles ---
         # if obstacle detected, modify drives to avoid collision
 
         # --- Avoid dragonfly ---
         # if dragonfly detected, modify drives to avoid it
+        
 
         # --- Smoothing and control ---
         # Empêche les changements trop brusques qui feraient basculer la mouche sur une bosse ou un obstacle, en limitant les variations de gain d'une étape à l'autre.
 
+        # End conditions :
+        # if close to source, stop 
 
         olfaction_smooth = None
 
