@@ -16,6 +16,7 @@ def odor_intensity_to_control_signal(
         else 0
     )
     
+    
     effective_bias = attractive_bias
     effective_bias_norm = np.tanh(effective_bias**2) * np.sign(effective_bias)
 
