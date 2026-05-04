@@ -24,6 +24,7 @@ class Controller:
 import numpy as np
 import cv2
 from miniproject.simulation import MiniprojectSimulation
+import matplotlib.pyplot as plt
 
 from flygym.vision.retina import Retina
 retina = Retina()
@@ -70,9 +71,16 @@ class Controller:
         # you may also implement your own turning controller
         from flygym.examples.locomotion import TurningController
 
-        self.turning_controller = TurningController(sim.timestep)
+        self.turning_controller = TurningController(sim.timestep, intrinsic_freqs=np.ones(6) * 50)
 
         self.prev_vision = None
+
+        #Video recording
+        self.video_writer = None
+        self.frame_size = None
+
+        self.raw_video_writer = None
+        self.raw_frame_size = None
 
     def step(self, sim: MiniprojectSimulation):
 
@@ -88,10 +96,13 @@ class Controller:
         odor_drives = odor_intensity_to_control_signal(olfaction_smooth)
 
         # implement your control algorithm here
-        ommatidia_readouts = sim.get_ommatidia_readouts(sim.fly.name)
-        curr_vision = self.preprocess_fly_vision(ommatidia_readouts)
         # get other observations as needed
         # drives = np.array([1.0, 1.0])  # replace with your control logic
+
+        raw_vision = sim.get_raw_vision(sim.fly.name)
+        # self.plot_raw_vision(raw_vision)
+        self.write_raw_vision_video(raw_vision)
+        curr_vision = self.preprocess_raw_vision(raw_vision)
 
         if self.prev_vision is not None:
             flow = self.compute_optic_flow_x(self.prev_vision, curr_vision)
@@ -112,38 +123,72 @@ class Controller:
                 1.0 - turn,  #left
                 1.0 + turn   #right
             ])
-            
+
+            # Video writing
+            # self.write_video_frame(curr_vision, flow)
 
         else:
             obstacle_drives = np.array([1.0, 1.0])
 
-        drives = obstacle_drives*0.5 + odor_drives*0.5
+        # print("odor drive : ", odor_drives, "  obstacle drive : ", obstacle_drives)
+        drives = obstacle_drives*0 + odor_drives*1.0
         drives = np.clip(drives, 0.2, 1.5) #clip for safety ?
 
         self.prev_vision = curr_vision
 
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
-    
-######Vision :
-    def crop_hex_to_rect(self, visual_input): #Doing image processing with hexagonal images is challenging, so we will resize the fly's vision to a rectangular image
-        """Extract a rectangular crop from the hexagonal ommatidium layout."""
-        rows = [np.unique(row) for row in ommatidia_id_map]
-        max_width = max(len(row) for row in rows)
-        rows = np.array([row for row in rows if len(row) == max_width])[:, 1:] - 1
-        cols = [np.unique(col) for col in rows.T]
-        min_height = min(len(col) for col in cols)
-        cols = [col[:min_height] for col in cols]
-        rows = np.array(cols).T
-        return visual_input.max(-1)[..., rows]
-    
-    def preprocess_fly_vision(self, ommatidia_readouts):
-        # return the result as np.uint8 image with values between 0 and 255
-        images = self.crop_hex_to_rect(ommatidia_readouts)[:, :5]
-        images = (images * 255).astype(np.uint8)
-        return images
-    
-    # perform optic flow
+
+    # ==============================
+    # VIDEO
+    # ==============================
+    def flow_to_image(self, flow):
+        vmax = np.max(np.abs(flow)) + 1e-6
+        flow_norm = (flow / vmax + 1) / 2
+        flow_img = (flow_norm * 255).astype(np.uint8)
+        flow_img = cv2.applyColorMap(flow_img, cv2.COLORMAP_TURBO)
+        return flow_img
+
+    def write_video_frame(self, vision, flow):
+
+        # build vision frame (top)
+        # vision_frame = np.concatenate(vision, axis=1)
+        # vision_frame = cv2.cvtColor(vision_frame, cv2.COLOR_GRAY2BGR)
+
+        # build flow frame (bottom)
+        frame = np.concatenate(
+            [self.flow_to_image(f) for f in flow],
+            axis=1
+        )
+
+        # stack vertically
+        # frame = np.vstack([vision_frame, flow_frame])
+
+        # init writer once
+        if self.video_writer is None:
+            h, w, _ = frame.shape
+            self.frame_size = (w, h)
+
+            self.video_writer = cv2.VideoWriter(
+                "optic_flow.mp4",
+                cv2.VideoWriter_fourcc(*"mp4v"),
+                30,
+                self.frame_size
+            )
+
+        self.video_writer.write(frame)
+
+    def close(self):
+        if self.video_writer is not None:
+            self.video_writer.release()
+            print("Saved video: optic_flow.mp4")
+        if self.raw_video_writer is not None:
+            self.raw_video_writer.release()
+            print("Saved video: raw_vision.mp4")
+
+    # ==============================
+    # Optic flow
+    # ==============================
     def compute_optic_flow_x(self, pre_imgs, post_imgs):
                 
         return np.array(
@@ -152,4 +197,65 @@ class Controller:
                 for pre_img, post_img in zip(pre_imgs, post_imgs)
             ]
         )
+    
+    def preprocess_raw_vision(self, raw_vision):
+        images = np.asarray(raw_vision)  # (2, 512, 450, 3)
 
+        processed = []
+
+        for img in images:
+            # RGB -> grayscale
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+
+            # Resize for faster optical flow
+            gray = cv2.resize(gray, (128, 128))
+
+            processed.append(gray)
+
+        return np.array(processed)
+    
+    def plot_raw_vision(self, raw_vision):
+
+        images = np.asarray(raw_vision)
+
+        plt.figure(figsize=(8, 4))
+
+        plt.subplot(1, 2, 1)
+        plt.imshow(images[0])
+        plt.title("Left eye")
+        plt.axis("off")
+
+        plt.subplot(1, 2, 2)
+        plt.imshow(images[1])
+        plt.title("Right eye")
+        plt.axis("off")
+
+        plt.tight_layout()
+        plt.show()
+
+
+    def write_raw_vision_video(self, raw_vision):
+        images = np.asarray(raw_vision)  # (2, H, W, 3)
+
+        left = images[0]
+        right = images[1]
+
+        # concatenate horizontally
+        frame = np.concatenate([left, right], axis=1)
+
+        # OpenCV expects BGR
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+        # init writer once
+        if self.raw_video_writer is None:
+            h, w, _ = frame.shape
+            self.raw_frame_size = (w, h)
+
+            self.raw_video_writer = cv2.VideoWriter(
+                "raw_vision.mp4",
+                cv2.VideoWriter_fourcc(*"mp4v"),
+                30,
+                self.raw_frame_size
+            )
+
+        self.raw_video_writer.write(frame)
