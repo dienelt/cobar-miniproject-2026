@@ -186,6 +186,38 @@ class Controller:
             self.raw_video_writer.release()
             print("Saved video: raw_vision.mp4")
 
+    ###########
+
+    def keep_top_third(self, img):
+        """
+        Keep only the top third of the image.
+        """
+        h = img.shape[0]
+        top_third = img[: h // 3, ...]  # keep rows from 0 to h/3
+        return top_third
+
+    def filter_green(self, img, g_min=170, b_max=50, r_max=120):
+        # Ensure uint8
+        img = img.astype(np.uint8)
+
+        r = img[..., 0]
+        g = img[..., 1]
+        b = img[..., 2]
+
+        # Threshold mask
+        mask = (g > g_min) & (b < b_max) #& (r < r_max)
+
+        # Apply mask
+        filtered = np.zeros_like(img)
+        filtered[mask] = img[mask]
+
+        return filtered
+    
+    def full_process(self, img, g_min=170, b_max=50, r_max=120):
+        filtered = self.filter_green(img, g_min, b_max, r_max)
+        return self.keep_top_third(filtered)
+    ###############
+
     # ==============================
     # Optic flow
     # ==============================
@@ -205,6 +237,7 @@ class Controller:
 
         for img in images:
             # RGB -> grayscale
+            img = self.filter_green(img)
             gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
             # Resize for faster optical flow
@@ -237,11 +270,25 @@ class Controller:
     def write_raw_vision_video(self, raw_vision):
         images = np.asarray(raw_vision)  # (2, H, W, 3)
 
-        left = images[0]
-        right = images[1]
+        # left = images[0]
+        # right = images[1]
+        left = self.filter_green(images[0])
+        right = self.filter_green(images[1])
+        left_2 = images[0]
+        right_2 = images[1]
+        left_3 = self.full_process(images[0])
+        right_3 = self.full_process(images[1])
 
-        # concatenate horizontally
-        frame = np.concatenate([left, right], axis=1)
+        print("right_3 shape:", right_3.shape)
+        print("number of pixels:", right_3.size)
+
+
+
+        top = np.concatenate([left_2, right_2], axis=1)   # original
+        bottom = np.concatenate([left, right], axis=1)    # filtered
+        bottom_2 = np.concatenate([left_3, right_3], axis=1)   # original
+
+        frame = np.concatenate([top, bottom, bottom_2], axis=0)
 
         # OpenCV expects BGR
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
