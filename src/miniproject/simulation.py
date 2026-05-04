@@ -148,13 +148,13 @@ class MiniprojectSimulation(Simulation):
                 fly.add_tracking_camera(
                     name="backcam",
                     mode="fixed",
-                    pos_offset=(-15, 0, 4),
-                    rotation=Rotation3D("euler", (1.3, 0, -np.pi / 2)),
-                    fovy=40,
+                    pos_offset=(-15, 0, 10),
+                    rotation=Rotation3D("euler", (1.2, 0, -np.pi / 2)),
+                    fovy=50,
                 )
             )
 
-        amplitude = 10 if self.enable_terrain else np.finfo(float).eps
+        amplitude = 8 if self.enable_terrain else np.finfo(float).eps
         world = MiniprojectWorld(amplitude=amplitude, rng=rng)
         banana_xy = sample_polar((29, 31), (-np.pi, np.pi), rng)
         world.add_banana_slice(pos=banana_xy)
