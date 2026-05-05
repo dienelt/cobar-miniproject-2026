@@ -216,6 +216,33 @@ class Controller:
     def full_process(self, img, g_min=170, b_max=50, r_max=120):
         filtered = self.filter_green(img, g_min, b_max, r_max)
         return self.keep_top_third(filtered)
+    
+
+    def avoid_obstacle(self, left_img, right_img, threshold=3000, k_turn=0.00005): #22900 : doesn't detect
+
+        drives = np.array([1.0, 1.0])
+
+        left_count = np.count_nonzero(left_img)
+        right_count = np.count_nonzero(right_img)
+
+        if(left_count > threshold):
+            turn_strength = left_count*k_turn
+            drives = np.array([
+                1.0 + turn_strength,  # left
+                1.0 - turn_strength   # right
+            ])
+
+        elif (right_count > threshold):
+            turn_strength = right_count*k_turn
+            drives = np.array([
+                1.0 - turn_strength,  # left
+                1.0 + turn_strength   # right
+            ])
+
+        return drives, left_count, right_count
+
+
+
     ###############
 
     # ==============================
@@ -279,19 +306,35 @@ class Controller:
         left_3 = self.full_process(images[0])
         right_3 = self.full_process(images[1])
 
-        print("right_3 shape:", right_3.shape)
-        print("number of pixels:", right_3.size)
-
+        drives, left_count, right_count = self.avoid_obstacle(left_3, right_3)
 
 
         top = np.concatenate([left_2, right_2], axis=1)   # original
         bottom = np.concatenate([left, right], axis=1)    # filtered
         bottom_2 = np.concatenate([left_3, right_3], axis=1)   # original
 
-        frame = np.concatenate([top, bottom, bottom_2], axis=0)
+        frame = np.concatenate([top, bottom_2, bottom], axis=0)
 
         # OpenCV expects BGR
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+        h, w, _ = frame.shape
+        panel_width = 400
+        panel = np.zeros((h, panel_width, 3), dtype=np.uint8)  # black panel
+        # text = f"L: {drives[0]:.2f}  R: {drives[1]:.2f}"
+        text = f"L: {drives[0]:.2f} ({left_count})  R: {drives[1]:.2f} ({right_count})"
+        cv2.putText(
+            panel,
+            text,
+            (10, 50),  # position (x, y)
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 255, 0),  # green text
+            2,
+            cv2.LINE_AA
+        )
+
+        frame = np.concatenate([frame, panel], axis=1)
 
         # init writer once
         if self.raw_video_writer is None:
