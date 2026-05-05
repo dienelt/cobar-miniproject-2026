@@ -105,6 +105,7 @@ class Controller:
         images = np.asarray(raw_vision)  # (2, H, W, 3)
         left_vis = self.full_process(images[0])
         right_vis = self.full_process(images[1])
+        left_vis, right_vis = self.keep_cropped(left_vis, right_vis)
         obstacle_drives, left_count, right_count, obstacle = self.avoid_obstacle(left_vis, right_vis)
 
         if(obstacle):
@@ -168,14 +169,18 @@ class Controller:
 
     ###########
 
-    def keep_top(self, img):
-        """
-        Keep only the top third of the image.
-        """
-        h = img.shape[0]
-        cutoff = int(h * 0.33)
-        top_third = img[: cutoff, ...]  # keep rows from 0 to h/3
-        return top_third
+    def keep_cropped(self, img_L, img_R):
+        h, w = img_L.shape[:2]
+        h_cutoff = int(h * 0.33)
+        # w_left = int(w * (1/6))
+        # w_right = int(w * (5/6))
+        w_cutoff = int(w*0.4)
+
+        left_cropped = img_L[:h_cutoff, w_cutoff:]
+        right_cropped = img_R[:h_cutoff, :w_cutoff]
+
+        # cropped = img[:h_cutoff, w_left:w_right]
+        return left_cropped, right_cropped
 
     def filter_green(self, img, g_min=170, b_max=50, r_max=120):
         # Ensure uint8
@@ -196,7 +201,7 @@ class Controller:
     
     def full_process(self, img, g_min=170, b_max=50, r_max=120):
         filtered = self.filter_green(img, g_min, b_max, r_max)
-        return self.keep_top(filtered)
+        return filtered 
     
 
     def avoid_obstacle(self, left_img, right_img, threshold=2600, k_turn=0.00005): #22900 : doesn't detect
@@ -282,6 +287,18 @@ class Controller:
         plt.show()
 
 
+    def pad_to_width(self, img, target_w):
+        h, w = img.shape[:2]
+        pad_total = target_w - w
+        pad_left = pad_total // 2
+        pad_right = pad_total - pad_left
+
+        return np.pad(
+            img,
+            ((0, 0), (pad_left, pad_right), (0, 0)),
+            mode='constant'
+        )
+    
     def write_raw_vision_video(self, raw_vision):
         images = np.asarray(raw_vision)  # (2, H, W, 3)
 
@@ -293,6 +310,7 @@ class Controller:
         right_2 = images[1]
         left_3 = self.full_process(images[0])
         right_3 = self.full_process(images[1])
+        left_3, right_3 = self.keep_cropped(left_3, right_3)
 
         drives, left_count, right_count, _ = self.avoid_obstacle(left_3, right_3)
 
@@ -300,6 +318,7 @@ class Controller:
         top = np.concatenate([left_2, right_2], axis=1)   # original
         bottom = np.concatenate([left, right], axis=1)    # filtered
         bottom_2 = np.concatenate([left_3, right_3], axis=1)   # original
+        bottom_2 = self.pad_to_width(bottom_2, top.shape[1])
 
         frame = np.concatenate([top, bottom_2, bottom], axis=0)
 
@@ -307,7 +326,7 @@ class Controller:
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
         h, w, _ = frame.shape
-        panel_width = 400
+        panel_width = 600
         panel = np.zeros((h, panel_width, 3), dtype=np.uint8)  # black panel
         # text = f"L: {drives[0]:.2f}  R: {drives[1]:.2f}"
         text = f"L: {drives[0]:.2f} ({left_count})  R: {drives[1]:.2f} ({right_count})"
