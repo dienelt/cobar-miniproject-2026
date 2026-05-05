@@ -102,39 +102,19 @@ class Controller:
         raw_vision = sim.get_raw_vision(sim.fly.name)
         # self.plot_raw_vision(raw_vision)
         self.write_raw_vision_video(raw_vision)
-        curr_vision = self.preprocess_raw_vision(raw_vision)
+        images = np.asarray(raw_vision)  # (2, H, W, 3)
+        left_vis = self.full_process(images[0])
+        right_vis = self.full_process(images[1])
+        obstacle_drives, left_count, right_count, obstacle = self.avoid_obstacle(left_vis, right_vis)
 
-        if self.prev_vision is not None:
-            flow = self.compute_optic_flow_x(self.prev_vision, curr_vision)
-            mid = flow.shape[-1] // 2
-            left_flow = np.mean(flow[..., :mid])
-            right_flow = np.mean(flow[..., mid:])
-
-            #turning rule: more flow = closer obstacle -> turn away
-            turn = right_flow - left_flow
-
-            # print("left flow : ", left_flow, "right flow : ", right_flow, "turn : ", turn)
-
-            # #To test to be more smooth maybe
-            # turn = 0.8 * turn + 0.2 * self.prev_turn
-            # self.prev_turn = turn
-
-            obstacle_drives = np.array([
-                1.0 - turn,  #left
-                1.0 + turn   #right
-            ])
-
-            # Video writing
-            # self.write_video_frame(curr_vision, flow)
-
+        if(obstacle):
+            drives = obstacle_drives
         else:
-            obstacle_drives = np.array([1.0, 1.0])
-
+            drives = odor_drives
+        
         # print("odor drive : ", odor_drives, "  obstacle drive : ", obstacle_drives)
-        drives = obstacle_drives*0 + odor_drives*1.0
-        drives = np.clip(drives, 0.2, 1.5) #clip for safety ?
-
-        self.prev_vision = curr_vision
+        # drives = obstacle_drives*0 + odor_drives*1.0
+        drives = np.clip(drives, 0.2, 1.8) #clip for safety ?
 
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
@@ -188,12 +168,13 @@ class Controller:
 
     ###########
 
-    def keep_top_third(self, img):
+    def keep_top(self, img):
         """
         Keep only the top third of the image.
         """
         h = img.shape[0]
-        top_third = img[: h // 3, ...]  # keep rows from 0 to h/3
+        cutoff = int(h * 0.33)
+        top_third = img[: cutoff, ...]  # keep rows from 0 to h/3
         return top_third
 
     def filter_green(self, img, g_min=170, b_max=50, r_max=120):
@@ -215,31 +196,38 @@ class Controller:
     
     def full_process(self, img, g_min=170, b_max=50, r_max=120):
         filtered = self.filter_green(img, g_min, b_max, r_max)
-        return self.keep_top_third(filtered)
+        return self.keep_top(filtered)
     
 
-    def avoid_obstacle(self, left_img, right_img, threshold=3000, k_turn=0.00005): #22900 : doesn't detect
+    def avoid_obstacle(self, left_img, right_img, threshold=2600, k_turn=0.00005): #22900 : doesn't detect
 
         drives = np.array([1.0, 1.0])
+        obstacle = False
 
-        left_count = np.count_nonzero(left_img)
-        right_count = np.count_nonzero(right_img)
+        # left_count = np.count_nonzero(left_img)
+        # right_count = np.count_nonzero(right_img)
+
+        left_count = np.count_nonzero(np.any(left_img > 0, axis=-1))
+        right_count = np.count_nonzero(np.any(right_img > 0, axis=-1))
 
         if(left_count > threshold):
             turn_strength = left_count*k_turn
+            obstacle = True
             drives = np.array([
                 1.0 + turn_strength,  # left
                 1.0 - turn_strength   # right
             ])
 
         elif (right_count > threshold):
-            turn_strength = right_count*k_turn
-            drives = np.array([
-                1.0 - turn_strength,  # left
-                1.0 + turn_strength   # right
-            ])
+            if(right_count > left_count):
+                turn_strength = right_count*k_turn
+                obstacle = True
+                drives = np.array([
+                    1.0 - turn_strength,  # left
+                    1.0 + turn_strength   # right
+                ])
 
-        return drives, left_count, right_count
+        return drives, left_count, right_count, obstacle
 
 
 
@@ -306,7 +294,7 @@ class Controller:
         left_3 = self.full_process(images[0])
         right_3 = self.full_process(images[1])
 
-        drives, left_count, right_count = self.avoid_obstacle(left_3, right_3)
+        drives, left_count, right_count, _ = self.avoid_obstacle(left_3, right_3)
 
 
         top = np.concatenate([left_2, right_2], axis=1)   # original
