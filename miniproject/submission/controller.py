@@ -84,6 +84,22 @@ class Controller:
         #################
 
         # Logique de réaction
+        dragonfly_detected, dragonfly_drives = self.avoid_dragonfly(
+            Detected_DragonFly_L,
+            Detected_DragonFly_R,
+            pixels_DragonFly_L,
+            pixels_DragonFly_R
+        )
+
+        if dragonfly_detected:
+            drives = dragonfly_drives
+
+        elif obstacle:
+            drives = obstacle_drives
+
+        else:
+            drives = odor_drives
+        
         if found_DragonFly_L or found_DragonFly_R:
             # print("ALERTE : Libellule détectée !")
             # Ici tu pourras définir un comportement de fuite
@@ -237,7 +253,7 @@ class Controller:
     ###############
 
     def avoid_obstacle(self, left_img, right_img, skyline_L, skyline_R,
-                   width_threshold=100, k_turn=0.005):
+                   width_threshold=73, k_turn=0.055):
 
         drives = np.array([1.0, 1.0])
         obstacle = False
@@ -391,7 +407,7 @@ class Controller:
         self.raw_video_writer.write(frame)
 
     ###############
-    def detect_dragonfly(self, img_above_skyline, v_threshold=50, min_pixels=20):
+    def detect_dragonfly(self, img_above_skyline, v_threshold=50, min_pixels=150):
         """
         Détecte la libellule dans la partie ciel de l'image.
         img_above_skyline: image où le sol est déjà noir (issu de keep_above_skyline)
@@ -429,53 +445,49 @@ class Controller:
 
         return detected, center_x, pixel_count, mask
     
-    def avoid_dragonfly(self,
-                    left_detected,
-                    right_detected,
-                    left_pixels,
-                    right_pixels):
-    """
-    Generate evasive maneuver against dragonfly.
+    def avoid_dragonfly(self, left_detected, right_detected, left_pixels, right_pixels):
+        """
+        Generate evasive maneuver against dragonfly.
 
-    Returns
-    -------
-    detected : bool
-    drives : np.ndarray
-    """
+        Returns
+        -------
+        detected : bool
+        drives : np.ndarray
+        """
 
-    dragonfly_detected = left_detected or right_detected
+        dragonfly_detected = left_detected or right_detected
 
-    if not dragonfly_detected:
-        return False, np.array([1.0, 1.0])
+        if not dragonfly_detected:
+            return False, np.array([1.0, 1.0])
 
-    total_pixels = left_pixels + right_pixels
+        total_pixels = left_pixels + right_pixels
 
-    # Turn strength increases with looming size
-    turn_strength = np.clip(total_pixels / 250, 0.3, 1.8)
+        # Turn strength increases with looming size
+        turn_strength = np.clip(total_pixels / 250, 0.3, 1.8)
 
-    # Dragonfly on LEFT -> turn RIGHT
-    if left_pixels > right_pixels:
+        # Dragonfly on LEFT -> turn RIGHT
+        if left_pixels > right_pixels:
 
-        drives = np.array([
-            1.0 + turn_strength,
-            1.0 - turn_strength
-        ])
+            drives = np.array([
+                1.0 + turn_strength,
+                1.0 - turn_strength
+            ])
 
-    # Dragonfly on RIGHT -> turn LEFT
-    else:
+        # Dragonfly on RIGHT -> turn LEFT
+        else:
 
-        drives = np.array([
-            1.0 - turn_strength,
-            1.0 + turn_strength
-        ])
+            drives = np.array([
+                1.0 - turn_strength,
+                1.0 + turn_strength
+            ])
 
-    # Emergency evasive maneuver
-    if total_pixels > 500:
+        # # Emergency evasive maneuver
+        # if total_pixels > 500:
 
-        drives *= 1.4
+        #     drives *= 1.4
 
-        # Random escape direction
-        if np.random.rand() > 0.5:
-            drives = drives[::-1]
+        #     # Random escape direction
+        #     if np.random.rand() > 0.5:
+        #         drives = drives[::-1]
 
-    return True, drives
+        return True, drives
