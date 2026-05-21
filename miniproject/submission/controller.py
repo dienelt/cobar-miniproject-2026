@@ -5,6 +5,17 @@ import matplotlib.pyplot as plt
 from sklearn.linear_model import RANSACRegressor, LinearRegression
 
 
+wave_phase_biases = np.array(
+    [
+        [0, 1, 2, 3, 4, 5],
+        [5, 0, 1, 2, 3, 4],
+        [4, 5, 0, 1, 2, 3],
+        [3, 4, 5, 0, 1, 2],
+        [2, 3, 4, 5, 0, 1],
+        [1, 2, 3, 4, 5, 0],
+    ]
+) * (2 * np.pi / 6)
+
 def odor_intensity_to_control_signal(
     odor_intensities,
     attractive_gain=-500,
@@ -88,11 +99,16 @@ class Controller:
             # self.plot_raw_vision(raw_vision)
             self.write_raw_vision_video(raw_vision, stuck)
             images = np.asarray(raw_vision)  # (2, H, W, 3)
-            crop_left = self.keep_middle_left(images[0])
-            crop_right = self.keep_middle_right(images[1])
+            crop_left = self.keep_middle_left(images[0],threshold=1/3)
+            crop_right = self.keep_middle_right(images[1],threshold=2/3)
             left_vis, skyline_L = self.full_process(crop_left)
             right_vis, skyline_R = self.full_process(crop_right)
-            self.obstacle_drives, left_count, right_count, self.obstacle, _, _ = self.avoid_obstacle(left_vis, right_vis, skyline_L, skyline_R)
+            self.obstacle_drives, left_count, right_count, self.obstacle, _, _ = self.avoid_obstacle(left_vis, 
+                                                                                                     right_vis, 
+                                                                                                     skyline_L, 
+                                                                                                     skyline_R,
+                                                                                                     width_threshold_min=45,
+                                                                                                     width_threshold_max=80)
 
         if(self.obstacle):
             self.drives = self.obstacle_drives
@@ -143,13 +159,18 @@ class Controller:
                 self.is_stuck = False
                 print(f"Fin Stuck Mode au step {self.step_count}. Et c'est reparti pour un touuuur")
         
-        # print("odor drive : ", odor_drives, "  obstacle drive : ", obstacle_drives)
-        # drives = obstacle_drives*0 + odor_drives*1.0
-        if self.is_stuck:
-            min_drive = -2.0
-        else:
-            min_drive = 0.0
-        self.drives = np.clip(self.drives, min_drive, 2.0) #clip for safety ?
+        # # print("odor drive : ", odor_drives, "  obstacle drive : ", obstacle_drives)
+        # # drives = obstacle_drives*0 + odor_drives*1.0
+        # if self.is_stuck:
+        #     min_drive = -2.0
+        # else:
+        #     min_drive = 0.0
+
+
+        #self.drives = np.clip(self.drives, min_drive, 2.0) #clip for safety ?
+        self.drives = np.clip(self.drives, -1.0, 2.5) #clip for safety ?
+
+
         self.step_count += 1
         joint_angles, adhesion = self.turning_controller.step(self.drives)
         return joint_angles, adhesion
@@ -196,21 +217,20 @@ class Controller:
         top_third = img[: cutoff, ...]  # keep rows from 0 to h/3
         return top_third
     
-    def keep_middle_right(self, img):
+    def keep_middle_right(self, img,threshold=1/3):
         """
         Keep only the left third of the right vision
         """
-        threshold = 2/5
+        
         w = img.shape[1]
         cutoff = int(w * threshold)
         left_third = img[:, :cutoff, ...]  
         return left_third
     
-    def keep_middle_left(self, img):
+    def keep_middle_left(self, img,threshold=2/3):
         """
         Keep only the right third of the left vision
         """
-        threshold = 3/5
         w = img.shape[1]
         cutoff = int(w * threshold)          
         right_third = img[:, cutoff:, ...]
@@ -484,7 +504,7 @@ class Controller:
     ###############
 
     def avoid_obstacle(self, left_img, right_img, skyline_L, skyline_R,
-                   width_threshold=45, k_turn=0.055): #vid 27 : 100, 0.01 #vid 28 : 100, 0.035
+                   width_threshold_min=40, width_threshold_max=80, k_turn=0.055): #vid 27 : 100, 0.01 #vid 28 : 100, 0.035
 
         drives = np.array([1.0, 1.0])
         obstacle = False
@@ -538,27 +558,27 @@ class Controller:
         right_width, right_count, right_seg = get_green_width(right_img, skyline_R)
 
         # Trigger conditions
-        left_trigger = left_width > width_threshold
-        right_trigger = right_width > width_threshold
+        left_trigger = width_threshold_min < left_width < width_threshold_max
+        right_trigger = width_threshold_min < right_width < width_threshold_max
 
         # Decision logic
         if left_trigger and right_trigger:
             obstacle = True
             if left_width > right_width:
-                turn_strength = (left_width - width_threshold) * k_turn
+                turn_strength = (left_width - width_threshold_min) * k_turn
                 drives = np.array([1.0 + turn_strength, 1.0 - turn_strength])
             else:
-                turn_strength = (right_width - width_threshold) * k_turn
+                turn_strength = (right_width - width_threshold_min) * k_turn
                 drives = np.array([1.0 - turn_strength, 1.0 + turn_strength])
 
         elif left_trigger:
             obstacle = True
-            turn_strength = (left_width - width_threshold) * k_turn
+            turn_strength = (left_width - width_threshold_min) * k_turn
             drives = np.array([1.0 + turn_strength, 1.0 - turn_strength])
 
         elif right_trigger:
             obstacle = True
-            turn_strength = (right_width - width_threshold) * k_turn
+            turn_strength = (right_width - width_threshold_min) * k_turn
             drives = np.array([1.0 - turn_strength, 1.0 + turn_strength])
 
         return drives, left_width, right_width, obstacle, left_seg, right_seg
@@ -597,7 +617,7 @@ class Controller:
             left_processed,
             right_processed, skyline_L, skyline_R
         )
-
+        drives = np.clip(drives, -1.0, 2.5)
         left_original = self.draw_width(left_original, left_seg)
         right_original = self.draw_width(right_original, right_seg)
 
@@ -646,7 +666,7 @@ class Controller:
             self.raw_frame_size = (w, h)
 
             self.raw_video_writer = cv2.VideoWriter(
-                "raw_vision.webm",
+                "raw_vision_new_threshold.webm",
                 cv2.VideoWriter_fourcc(*"VP09"),
                 30,
                 self.raw_frame_size
@@ -680,19 +700,26 @@ class Controller:
 
         # On convertit la liste en array NumPy pour extraire facilement les colonnes
         positions = np.array(self.head_position)
-        
+
+
         x_coords = positions[:, 0]  # Première colonne = X
         y_coords = positions[:, 1]  # Deuxième colonne = Y
         
         plt.figure(figsize=(8, 6))
-        
+    
         # Trace la ligne de la trajectoire
         plt.plot(x_coords, y_coords, label="Trajectoire de la tête", color="blue", linewidth=2)
-        
+        #banana [-19.36779711 -23.66539834]
+
+        #banana_xy = np.array([30.07098571432481 , -6.076987186520356]) seed 67
+        banana_xy = np.array([-10.355681357019149 , 28.906774050637956])  #seed 777
+        fly_xy = np.array([x_coords[-1], y_coords[-1]])
+        print("final dist",np.linalg.norm(fly_xy - banana_xy))
+
         # Marque le point de départ et d'arrivée
         plt.scatter(x_coords[0], y_coords[0], color="green", edgecolors="black", s=100, label="Départ", zorder=5)
         plt.scatter(x_coords[-1], y_coords[-1], color="red", edgecolors="black", s=100, label="Arrivée", zorder=5)
-        
+        plt.scatter(banana_xy[0], banana_xy[1], color="yellow", edgecolors="black", s=100, label="Banana", zorder=5)
         # Habillage du graphique
         plt.title("Trajectoire de la tête de la mouche (Plan X-Y)")
         plt.xlabel("Position X (mm)")
