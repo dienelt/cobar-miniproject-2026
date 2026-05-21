@@ -124,8 +124,9 @@ class Controller:
         """
         Keep only the left third of the right vision
         """
+        threshold = 2/5
         w = img.shape[1]
-        cutoff = int(w * 0.33)
+        cutoff = int(w * threshold)
         left_third = img[:, :cutoff, ...]  
         return left_third
     
@@ -133,8 +134,9 @@ class Controller:
         """
         Keep only the right third of the left vision
         """
+        threshold = 3/5
         w = img.shape[1]
-        cutoff = int(w * 0.67)          
+        cutoff = int(w * threshold)          
         right_third = img[:, cutoff:, ...]
         return right_third
 
@@ -406,7 +408,7 @@ class Controller:
     ###############
 
     def avoid_obstacle(self, left_img, right_img, skyline_L, skyline_R,
-                   width_threshold=45, k_turn=0.055): #vid 27 : 100, 0.01 #vid 28 : 100, 0.035
+                   width_threshold=40, k_turn=0.055): #vid 27 : 100, 0.01 #vid 28 : 100, 0.035
 
         drives = np.array([1.0, 1.0])
         obstacle = False
