@@ -31,7 +31,7 @@ def odor_intensity_to_control_signal(
         else 0
     )
     
-
+    
     effective_bias = attractive_bias
     effective_bias_norm = np.tanh(effective_bias**2) * np.sign(effective_bias)
 
@@ -66,10 +66,10 @@ class Controller:
         # --- stuck mode ---
         self.is_stuck = False
         self.stuck_count = 0
-        self.stuck_duration = 1000  # Nombre de steps pendant lesquels on recule (arbitraire as fuck)
+        self.stuck_duration = 4500  # Nombre de steps pendant lesquels on recule (arbitraire as fuck)
 
         self.immobile_count = 0
-        self.immobile_threshold = 150  # Nombre de steps immobiles max avant de trigger le stuck mode
+        self.immobile_threshold = 1200  # Nombre de steps immobiles max avant de trigger le stuck mode
         # self.window_size = 500 # fenêtre glissante
         # self.movement_threshold = 0.05  # Distance min (en mm) pour considérer que la mouche a bougé
 
@@ -93,11 +93,11 @@ class Controller:
         # get other observations as needed
         # drives = np.array([1.0, 1.0])  # replace with your control logic
         
-        if self.step_count % 200 == 0:
+        if self.step_count % 500 == 0:
             #print("vision")
             raw_vision = sim.get_raw_vision(sim.fly.name)
             # self.plot_raw_vision(raw_vision)
-            self.write_raw_vision_video(raw_vision)
+            self.write_raw_vision_video(raw_vision, stuck)
             images = np.asarray(raw_vision)  # (2, H, W, 3)
             crop_left = self.keep_middle_left(images[0],threshold=1/3)
             crop_right = self.keep_middle_right(images[1],threshold=2/3)
@@ -122,31 +122,42 @@ class Controller:
         #     pos_precedente = np.array(self.head_position[-self.window_size])
         #     distance_parcourue = np.linalg.norm(pos_actuelle - pos_precedente)
 
-        # if stuck :
-        #     self.immobile_count += 1
-        #     print(f"stuck {self.immobile_count} steps")
-        # else:
-        #     self.immobile_count = 0
+        if stuck :
+            self.immobile_count += 1
+        else:
+            self.immobile_count = 0
 
-        # if self.immobile_count >= self.immobile_threshold:
-        #     self.is_stuck = True
-        #     self.stuck_count = 0
-        #     self.immobile_count = 0
-        #     if self.step_count > 100 : print(f"Moumouche coincéééééée ! Activation du Stuck Mode au step {self.step_count}")
-        
-        # # if stuck, reverse the control signal and then turn around itself to try to get unstuck
-        # if self.is_stuck:
-        #     # drives = -drives
-        #     self.drives = np.array([-1.5, -0.5])
-        #     self.stuck_count += 1
-        #     # print(f"Moumouche coincée Stuck Mode: step {self.stuck_count}")
-        
+        if self.immobile_count >= self.immobile_threshold:
+            self.is_stuck = True
+            self.stuck_count = 0
+            self.immobile_count = 0
+            # if(odor_drives[1]>odor_drives[0]):
+            #     self.stuck_drives = np.array([-0.6, -1.4])
+            # else:
+            #     self.stuck_drives = np.array([-1.4, -0.6])
+
+            if(odor_drives[1]>odor_drives[0]):
+                    self.stuck_drives = np.array([1.4, -1.4])
+            else:
+                self.stuck_drives = np.array([-1.4, 1.4])
             
-        #     if self.stuck_count >= self.stuck_duration:
-        #         # Reset the stuck count and switch back to normal mode
-        #         self.stuck_count = 0
-        #         self.is_stuck = False
-        #         print(f"Fin Stuck Mode au step {self.step_count}. Et c'est reparti pour un touuuur")
+        # if stuck, reverse the control signal and then turn around itself to try to get unstuck
+        if self.is_stuck:
+            # drives = -drives
+            
+            self.stuck_count += 1
+            self.drives = self.stuck_drives
+
+            if(self.stuck_count < (self.stuck_duration/2.0)):
+                self.drives = np.array([-1.3, -1.3])
+            else :
+                self.drives = self.stuck_drives
+                
+            if self.stuck_count >= self.stuck_duration:
+                # Reset the stuck count and switch back to normal mode
+                self.stuck_count = 0
+                self.is_stuck = False
+                print(f"Fin Stuck Mode au step {self.step_count}. Et c'est reparti pour un touuuur")
         
         # # print("odor drive : ", odor_drives, "  obstacle drive : ", obstacle_drives)
         # # drives = obstacle_drives*0 + odor_drives*1.0
@@ -176,8 +187,8 @@ class Controller:
 
     ###########
 
-    def check_stuck(self, N=1000, threshold=0.1):  # 2000 steps ~ 1 sec # 0.8 : always stuck
-        if len(self.head_position) < 2:
+    def check_stuck(self, N=1000, threshold=0.25):  # 2000 steps ~ 1 sec # 0.8 : always stuck
+        if len(self.head_position) < 2000:
             return False
 
         recent = np.array(self.head_position[-N:])
@@ -583,7 +594,7 @@ class Controller:
         return img_out
 
 
-    def write_raw_vision_video(self, raw_vision):
+    def write_raw_vision_video(self, raw_vision, stuck):
         images = np.asarray(raw_vision)  # (2, H, W, 3)
         crop_left = self.keep_middle_left(images[0])
         crop_right = self.keep_middle_right(images[1])
@@ -626,7 +637,9 @@ class Controller:
         text1 = f"L drive: {drives[0]:.2f} | R drive: {drives[1]:.2f}"
         text2 = f"L green: {left_count:.2f} | R green: {right_count:.2f}"
         text3 = f"Obstacle: {obstacle}"
-        
+        text4 = f"Stuck: {stuck}"
+        text5 = f"is_stuck: {self.is_stuck}"
+        text6 = f"immobile counts: {self.immobile_count}"
 
         cv2.putText(panel, text1, (10, 50),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
@@ -637,6 +650,14 @@ class Controller:
         cv2.putText(panel, text3, (10, 150),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
+        cv2.putText(panel, text4, (10, 200),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+        cv2.putText(panel, text5, (10, 250),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+        cv2.putText(panel, text6, (10, 300),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
         frame = np.concatenate([frame, panel], axis=1)
 
