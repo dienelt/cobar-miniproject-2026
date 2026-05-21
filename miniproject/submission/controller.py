@@ -47,7 +47,8 @@ class Controller:
         from flygym.examples.locomotion import TurningController
 
         #self.turning_controller = TurningController(sim.timestep, intrinsic_freqs=np.ones(6) * 20, intrinsic_amps=np.ones(6) * 4)
-        self.turning_controller = TurningController(sim.timestep, phase_biases=wave_phase_biases)
+        # self.turning_controller = TurningController(sim.timestep, phase_biases=wave_phase_biases)
+        self.turning_controller = TurningController(sim.timestep)
 
         self.prev_vision = None
         self.step_count = 0
@@ -66,10 +67,10 @@ class Controller:
         # --- stuck mode ---
         self.is_stuck = False
         self.stuck_count = 0
-        self.stuck_duration = 7000  # Nombre de steps pendant lesquels on recule (arbitraire as fuck)
+        self.stuck_duration = 8000  # Nombre de steps pendant lesquels on recule (arbitraire as fuck)
 
         self.immobile_count = 0
-        self.immobile_threshold = 1200  # Nombre de steps immobiles max avant de trigger le stuck mode
+        self.immobile_threshold = 1700  # Nombre de steps immobiles max avant de trigger le stuck mode
         # self.window_size = 500 # fenêtre glissante
         # self.movement_threshold = 0.05  # Distance min (en mm) pour considérer que la mouche a bougé
 
@@ -137,9 +138,9 @@ class Controller:
             #     self.stuck_drives = np.array([-1.4, -0.6])
 
             if(odor_drives[0]>odor_drives[1]):
-                    self.stuck_drives = np.array([1.0, -1.0])
+                    self.stuck_drives = np.array([1.3, -1.3])
             else:
-                self.stuck_drives = np.array([-1.0, 1.0])
+                self.stuck_drives = np.array([-1.3, 1.3])
             
         #if stuck, reverse the control signal and then turn around itself to try to get unstuck
         if self.is_stuck:
@@ -157,7 +158,7 @@ class Controller:
                 # Reset the stuck count and switch back to normal mode
                 self.stuck_count = 0
                 self.is_stuck = False
-                self.immobile_count = -1000
+                self.immobile_count = 0
                 print(f"Fin Stuck Mode au step {self.step_count}. Et c'est reparti pour un touuuur")
         
         # # print("odor drive : ", odor_drives, "  obstacle drive : ", obstacle_drives)
@@ -188,7 +189,7 @@ class Controller:
 
     ###########
 
-    def check_stuck(self, N=80, threshold=0.04):  # 2000 steps ~ 1 sec # 0.8 : always stuck
+    def check_stuck(self, N=800, threshold=0.23):  # 2000 steps ~ 1 sec # 0.8 : always stuck
         if len(self.head_position) < 2000:
             return False
 
