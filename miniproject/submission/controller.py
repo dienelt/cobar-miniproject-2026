@@ -20,7 +20,7 @@ def odor_intensity_to_control_signal(
         else 0
     )
     
-
+    
     effective_bias = attractive_bias
     effective_bias_norm = np.tanh(effective_bias**2) * np.sign(effective_bias)
 
@@ -86,7 +86,7 @@ class Controller:
             #print("vision")
             raw_vision = sim.get_raw_vision(sim.fly.name)
             # self.plot_raw_vision(raw_vision)
-            self.write_raw_vision_video(raw_vision)
+            self.write_raw_vision_video(raw_vision, stuck)
             images = np.asarray(raw_vision)  # (2, H, W, 3)
             crop_left = self.keep_middle_left(images[0])
             crop_right = self.keep_middle_right(images[1])
@@ -473,7 +473,7 @@ class Controller:
     ###############
 
     def avoid_obstacle(self, left_img, right_img, skyline_L, skyline_R,
-                   width_threshold=40, k_turn=0.055): #vid 27 : 100, 0.01 #vid 28 : 100, 0.035
+                   width_threshold=45, k_turn=0.055): #vid 27 : 100, 0.01 #vid 28 : 100, 0.035
 
         drives = np.array([1.0, 1.0])
         obstacle = False
@@ -563,7 +563,7 @@ class Controller:
         return img_out
 
 
-    def write_raw_vision_video(self, raw_vision):
+    def write_raw_vision_video(self, raw_vision, stuck):
         images = np.asarray(raw_vision)  # (2, H, W, 3)
         crop_left = self.keep_middle_left(images[0])
         crop_right = self.keep_middle_right(images[1])
@@ -606,6 +606,7 @@ class Controller:
         text1 = f"L drive: {drives[0]:.2f} | R drive: {drives[1]:.2f}"
         text2 = f"L green: {left_count:.2f} | R green: {right_count:.2f}"
         text3 = f"Obstacle: {obstacle}"
+        text4 = f"Stuck: {stuck}"
 
         cv2.putText(panel, text1, (10, 50),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
@@ -614,6 +615,9 @@ class Controller:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
         cv2.putText(panel, text3, (10, 150),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+        cv2.putText(panel, text4, (10, 200),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
         frame = np.concatenate([frame, panel], axis=1)
@@ -679,3 +683,24 @@ class Controller:
         plt.axis("equal")  # Très important pour ne pas déformer les virages de la mouche !
         
         plt.show()
+
+    def check_stuck(self, N=2000, threshold=0.25):  # 2000 steps ~ 1 sec # 0.8 : always stuck
+        if len(self.head_position) < 2:
+            return False
+
+        recent = np.array(self.head_position[-N:])
+
+        if recent.shape[0] < 2:
+            return False
+
+        # Compute mean position over window
+        mean_pos = np.mean(recent, axis=0)
+
+        # Last known position
+        last_pos = recent[-1]
+
+        # Distance from mean trajectory center
+        distance = np.linalg.norm(last_pos - mean_pos)
+
+        stuck = distance < threshold
+        return stuck
