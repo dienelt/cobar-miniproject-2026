@@ -55,10 +55,10 @@ class Controller:
         # --- stuck mode ---
         self.is_stuck = False
         self.stuck_count = 0
-        self.stuck_duration = 1000  # Nombre de steps pendant lesquels on recule (arbitraire as fuck)
+        self.stuck_duration = 4500  # Nombre de steps pendant lesquels on recule (arbitraire as fuck)
 
         self.immobile_count = 0
-        self.immobile_threshold = 150  # Nombre de steps immobiles max avant de trigger le stuck mode
+        self.immobile_threshold = 1200  # Nombre de steps immobiles max avant de trigger le stuck mode
         # self.window_size = 500 # fenêtre glissante
         # self.movement_threshold = 0.05  # Distance min (en mm) pour considérer que la mouche a bougé
 
@@ -82,7 +82,7 @@ class Controller:
         # get other observations as needed
         # drives = np.array([1.0, 1.0])  # replace with your control logic
         
-        if self.step_count % 200 == 0:
+        if self.step_count % 500 == 0:
             #print("vision")
             raw_vision = sim.get_raw_vision(sim.fly.name)
             # self.plot_raw_vision(raw_vision)
@@ -108,7 +108,6 @@ class Controller:
 
         if stuck :
             self.immobile_count += 1
-            print(f"stuck {self.immobile_count} steps")
         else:
             self.immobile_count = 0
 
@@ -116,16 +115,28 @@ class Controller:
             self.is_stuck = True
             self.stuck_count = 0
             self.immobile_count = 0
-            if self.step_count > 100 : print(f"Moumouche coincéééééée ! Activation du Stuck Mode au step {self.step_count}")
-        
+            # if(odor_drives[1]>odor_drives[0]):
+            #     self.stuck_drives = np.array([-0.6, -1.4])
+            # else:
+            #     self.stuck_drives = np.array([-1.4, -0.6])
+
+            if(odor_drives[1]>odor_drives[0]):
+                    self.stuck_drives = np.array([1.4, -1.4])
+            else:
+                self.stuck_drives = np.array([-1.4, 1.4])
+            
         # if stuck, reverse the control signal and then turn around itself to try to get unstuck
         if self.is_stuck:
             # drives = -drives
-            self.drives = np.array([-1.5, -0.5])
-            self.stuck_count += 1
-            # print(f"Moumouche coincée Stuck Mode: step {self.stuck_count}")
-        
             
+            self.stuck_count += 1
+            self.drives = self.stuck_drives
+
+            if(self.stuck_count < (self.stuck_duration/2.0)):
+                self.drives = np.array([-1.3, -1.3])
+            else :
+                self.drives = self.stuck_drives
+                
             if self.stuck_count >= self.stuck_duration:
                 # Reset the stuck count and switch back to normal mode
                 self.stuck_count = 0
@@ -155,8 +166,8 @@ class Controller:
 
     ###########
 
-    def check_stuck(self, N=1000, threshold=0.1):  # 2000 steps ~ 1 sec # 0.8 : always stuck
-        if len(self.head_position) < 2:
+    def check_stuck(self, N=1000, threshold=0.25):  # 2000 steps ~ 1 sec # 0.8 : always stuck
+        if len(self.head_position) < 2000:
             return False
 
         recent = np.array(self.head_position[-N:])
@@ -607,6 +618,8 @@ class Controller:
         text2 = f"L green: {left_count:.2f} | R green: {right_count:.2f}"
         text3 = f"Obstacle: {obstacle}"
         text4 = f"Stuck: {stuck}"
+        text5 = f"is_stuck: {self.is_stuck}"
+        text6 = f"immobile counts: {self.immobile_count}"
 
         cv2.putText(panel, text1, (10, 50),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
@@ -618,6 +631,12 @@ class Controller:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
         cv2.putText(panel, text4, (10, 200),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+        cv2.putText(panel, text5, (10, 250),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+        cv2.putText(panel, text6, (10, 300),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
         frame = np.concatenate([frame, panel], axis=1)
@@ -683,24 +702,3 @@ class Controller:
         plt.axis("equal")  # Très important pour ne pas déformer les virages de la mouche !
         
         plt.show()
-
-    def check_stuck(self, N=2000, threshold=0.25):  # 2000 steps ~ 1 sec # 0.8 : always stuck
-        if len(self.head_position) < 2:
-            return False
-
-        recent = np.array(self.head_position[-N:])
-
-        if recent.shape[0] < 2:
-            return False
-
-        # Compute mean position over window
-        mean_pos = np.mean(recent, axis=0)
-
-        # Last known position
-        last_pos = recent[-1]
-
-        # Distance from mean trajectory center
-        distance = np.linalg.norm(last_pos - mean_pos)
-
-        stuck = distance < threshold
-        return stuck
