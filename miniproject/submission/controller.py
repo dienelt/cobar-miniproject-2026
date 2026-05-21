@@ -26,7 +26,7 @@ def odor_intensity_to_control_signal(
 
     control_signal = np.ones(2)
     side_to_modulate = int(effective_bias_norm > 0)
-    modulation_amount = np.abs(effective_bias_norm) * 0.8
+    modulation_amount = np.abs(effective_bias_norm) * 1.0
     control_signal[side_to_modulate] -= modulation_amount
     return control_signal
 
@@ -35,19 +35,27 @@ class Controller:
         # you may also implement your own turning controller
         from flygym.examples.locomotion import TurningController
 
-        self.turning_controller = TurningController(sim.timestep, intrinsic_freqs=np.ones(6) * 50)
+        #self.turning_controller = TurningController(sim.timestep, intrinsic_freqs=np.ones(6) * 20, intrinsic_amps=np.ones(6) * 4)
+        self.turning_controller = TurningController(sim.timestep)
 
         self.prev_vision = None
-
+        self.step_count = 0
         #Video recording
         self.video_writer = None
         self.frame_size = None
 
         self.raw_video_writer = None
         self.raw_frame_size = None
+        self.odor_drives = np.ones(2)
+        self.obstacle_drives = np.ones(2)
+        self.drives = [0,0]
+        self.obstacle = False
+        self.head_position = []
 
     def step(self, sim: MiniprojectSimulation):
 
+        self.head_position.append(self.get_head_position(sim))
+        
         olfaction = sim.get_olfaction(sim.fly.name)
         olfaction_smooth = None
 
@@ -57,31 +65,38 @@ class Controller:
             alpha = 0.001
             olfaction_smooth = (1-alpha) * olfaction_smooth + alpha * olfaction
         
+        #if self.step_count % 200 == 0:
         odor_drives = odor_intensity_to_control_signal(olfaction_smooth)
 
         # implement your control algorithm here
         # get other observations as needed
         # drives = np.array([1.0, 1.0])  # replace with your control logic
+        
 
-        raw_vision = sim.get_raw_vision(sim.fly.name)
-        # self.plot_raw_vision(raw_vision)
-        self.write_raw_vision_video(raw_vision)
-        images = np.asarray(raw_vision)  # (2, H, W, 3)
-        left_vis, skyline_L = self.full_process(images[0])
-        right_vis, skyline_R = self.full_process(images[1])
-        obstacle_drives, left_count, right_count, obstacle, _, _ = self.avoid_obstacle(left_vis, right_vis, skyline_L, skyline_R)
+        if self.step_count % 200 == 0:
+            #print("vision")
+            raw_vision = sim.get_raw_vision(sim.fly.name)
+            # self.plot_raw_vision(raw_vision)
+            self.write_raw_vision_video(raw_vision)
+            images = np.asarray(raw_vision)  # (2, H, W, 3)
+            crop_left = self.keep_middle_left(images[0])
+            crop_right = self.keep_middle_right(images[1])
+            left_vis, skyline_L = self.full_process(crop_left)
+            right_vis, skyline_R = self.full_process(crop_right)
+            self.obstacle_drives, left_count, right_count, self.obstacle, _, _ = self.avoid_obstacle(left_vis, right_vis, skyline_L, skyline_R)
 
-        if(obstacle):
-            drives = obstacle_drives
+        if(self.obstacle):
+            self.drives = self.obstacle_drives
         else:
-            drives = odor_drives
-        # drives = odor_drives
+            self.drives = odor_drives
+
+        
         
         # print("odor drive : ", odor_drives, "  obstacle drive : ", obstacle_drives)
         # drives = obstacle_drives*0 + odor_drives*1.0
-        # drives = np.clip(drives, 0.2, 1.8) #clip for safety ?
-
-        joint_angles, adhesion = self.turning_controller.step(drives)
+        self.drives = np.clip(self.drives, 0.0, 2.2) #clip for safety ?
+        self.step_count+=1
+        joint_angles, adhesion = self.turning_controller.step(self.drives)
         return joint_angles, adhesion
 
     # ==============================
@@ -92,7 +107,7 @@ class Controller:
             print("Saved video: optic_flow.mp4")
         if self.raw_video_writer is not None:
             self.raw_video_writer.release()
-            print("Saved video: raw_vision.mp4")
+            print("Saved video: raw_vision")
 
     ###########
 
@@ -104,6 +119,25 @@ class Controller:
         cutoff = int(h * 0.33)
         top_third = img[: cutoff, ...]  # keep rows from 0 to h/3
         return top_third
+    
+    def keep_middle_right(self, img):
+        """
+        Keep only the left third of the right vision
+        """
+        w = img.shape[1]
+        cutoff = int(w * 0.33)
+        left_third = img[:, :cutoff, ...]  
+        return left_third
+    
+    def keep_middle_left(self, img):
+        """
+        Keep only the right third of the left vision
+        """
+        w = img.shape[1]
+        cutoff = int(w * 0.67)          
+        right_third = img[:, cutoff:, ...]
+        return right_third
+
 
     def filter_green(self, img, g_min=100, b_max=50, r_max=120):
         # Ensure uint8
@@ -372,7 +406,7 @@ class Controller:
     ###############
 
     def avoid_obstacle(self, left_img, right_img, skyline_L, skyline_R,
-                   width_threshold=80, k_turn=0.055): #vid 27 : 100, 0.01 #vid 28 : 100, 0.035
+                   width_threshold=45, k_turn=0.055): #vid 27 : 100, 0.01 #vid 28 : 100, 0.035
 
         drives = np.array([1.0, 1.0])
         obstacle = False
@@ -464,19 +498,22 @@ class Controller:
 
     def write_raw_vision_video(self, raw_vision):
         images = np.asarray(raw_vision)  # (2, H, W, 3)
-
+        crop_left = self.keep_middle_left(images[0])
+        crop_right = self.keep_middle_right(images[1])
+        # crop_left = images[0]
+        # crop_right = images[1]
         # Filtered green images
-        left_green = self.filter_green(images[0])
-        right_green = self.filter_green(images[1])
+        left_green = self.filter_green(crop_left)
+        right_green = self.filter_green(crop_right)
         # print("size : ", left_green.shape)
 
         # Above skyline + green filtered
-        left_processed, skyline_L = self.full_process(images[0])
-        right_processed, skyline_R = self.full_process(images[1])
+        left_processed, skyline_L = self.full_process(crop_left)
+        right_processed, skyline_R = self.full_process(crop_right)
 
         # Original images with skyline
-        left_original = self.draw_skyline(images[0], skyline_L)
-        right_original = self.draw_skyline(images[1], skyline_R)
+        left_original = self.draw_skyline(crop_left, skyline_L)
+        right_original = self.draw_skyline(crop_right, skyline_R)
 
         drives, left_count, right_count, obstacle, left_seg, right_seg = self.avoid_obstacle(
             left_processed,
@@ -519,10 +556,59 @@ class Controller:
             self.raw_frame_size = (w, h)
 
             self.raw_video_writer = cv2.VideoWriter(
-                "raw_vision.mp4",
-                cv2.VideoWriter_fourcc(*"mp4v"),
+                "raw_vision.webm",
+                cv2.VideoWriter_fourcc(*"VP09"),
                 30,
                 self.raw_frame_size
             )
 
         self.raw_video_writer.write(frame)
+
+
+    def get_head_position(self, sim: MiniprojectSimulation):
+        # 1. Tu récupères l'ordre des segments de la mouche
+        body_segments = sim.fly.get_bodysegs_order()
+
+        # 2. Tu trouves l'indice qui correspond à la tête ('c_head')
+        head_index = next(i for i, seg in enumerate(body_segments) if seg.name == 'c_head')
+
+        # 3. Tu récupères toutes les positions 3D en utilisant le NOM de la mouche (str)
+        all_positions = sim.get_body_positions(sim.fly.name)
+
+        # 4. Tu extrais la position de la tête grâce à son indice
+        head_position = all_positions[head_index]
+
+        return head_position
+    
+
+    def plot_head_trajectory(self):
+        
+        # Si la liste est vide (la simulation n'a pas tourné), on évite le crash
+        if not self.head_position:
+            print("Erreur : Aucun historique de position à tracer.")
+            return
+
+        # On convertit la liste en array NumPy pour extraire facilement les colonnes
+        positions = np.array(self.head_position)
+        
+        x_coords = positions[:, 0]  # Première colonne = X
+        y_coords = positions[:, 1]  # Deuxième colonne = Y
+        
+        plt.figure(figsize=(8, 6))
+        
+        # Trace la ligne de la trajectoire
+        plt.plot(x_coords, y_coords, label="Trajectoire de la tête", color="blue", linewidth=2)
+        
+        # Marque le point de départ et d'arrivée
+        plt.scatter(x_coords[0], y_coords[0], color="green", edgecolors="black", s=100, label="Départ", zorder=5)
+        plt.scatter(x_coords[-1], y_coords[-1], color="red", edgecolors="black", s=100, label="Arrivée", zorder=5)
+        
+        # Habillage du graphique
+        plt.title("Trajectoire de la tête de la mouche (Plan X-Y)")
+        plt.xlabel("Position X (mm)")
+        plt.ylabel("Position Y (mm)")
+        plt.grid(True, linestyle="--", alpha=0.6)
+        plt.legend()
+        plt.axis("equal")  # Très important pour ne pas déformer les virages de la mouche !
+        
+        plt.show()
