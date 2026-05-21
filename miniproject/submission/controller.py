@@ -55,7 +55,7 @@ class Controller:
         # --- stuck mode ---
         self.is_stuck = False
         self.stuck_count = 0
-        self.stuck_duration = 4500  # Nombre de steps pendant lesquels on recule (arbitraire as fuck)
+        self.stuck_duration = 2800  # Nombre de steps pendant lesquels on recule (arbitraire as fuck)
 
         self.immobile_count = 0
         self.immobile_threshold = 1200  # Nombre de steps immobiles max avant de trigger le stuck mode
@@ -121,9 +121,9 @@ class Controller:
             #     self.stuck_drives = np.array([-1.4, -0.6])
 
             if(odor_drives[1]>odor_drives[0]):
-                    self.stuck_drives = np.array([1.4, -1.4])
+                    self.stuck_drives = np.array([1.0, -1.0])
             else:
-                self.stuck_drives = np.array([-1.4, 1.4])
+                self.stuck_drives = np.array([-1.0, 1.0])
             
         # if stuck, reverse the control signal and then turn around itself to try to get unstuck
         if self.is_stuck:
@@ -133,7 +133,7 @@ class Controller:
             self.drives = self.stuck_drives
 
             if(self.stuck_count < (self.stuck_duration/2.0)):
-                self.drives = np.array([-1.3, -1.3])
+                self.drives = np.array([-1.0, -1.0])
             else :
                 self.drives = self.stuck_drives
                 
