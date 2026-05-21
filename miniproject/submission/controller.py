@@ -47,7 +47,7 @@ class Controller:
         from flygym.examples.locomotion import TurningController
 
         #self.turning_controller = TurningController(sim.timestep, intrinsic_freqs=np.ones(6) * 20, intrinsic_amps=np.ones(6) * 4)
-        self.turning_controller = TurningController(sim.timestep)
+        self.turning_controller = TurningController(sim.timestep, phase_biases=wave_phase_biases)
 
         self.prev_vision = None
         self.step_count = 0
@@ -66,7 +66,7 @@ class Controller:
         # --- stuck mode ---
         self.is_stuck = False
         self.stuck_count = 0
-        self.stuck_duration = 2800  # Nombre de steps pendant lesquels on recule (arbitraire as fuck)
+        self.stuck_duration = 7000  # Nombre de steps pendant lesquels on recule (arbitraire as fuck)
 
         self.immobile_count = 0
         self.immobile_threshold = 1200  # Nombre de steps immobiles max avant de trigger le stuck mode
@@ -93,14 +93,14 @@ class Controller:
         # get other observations as needed
         # drives = np.array([1.0, 1.0])  # replace with your control logic
         
-        if self.step_count % 500 == 0:
+        if self.step_count % 200 == 0:
             #print("vision")
             raw_vision = sim.get_raw_vision(sim.fly.name)
             # self.plot_raw_vision(raw_vision)
             self.write_raw_vision_video(raw_vision, stuck)
             images = np.asarray(raw_vision)  # (2, H, W, 3)
-            crop_left = self.keep_middle_left(images[0],threshold=1/3)
-            crop_right = self.keep_middle_right(images[1],threshold=2/3)
+            crop_left = self.keep_middle_left(images[0],threshold=2/5)
+            crop_right = self.keep_middle_right(images[1],threshold=3/5)
             left_vis, skyline_L = self.full_process(crop_left)
             right_vis, skyline_R = self.full_process(crop_right)
             self.obstacle_drives, left_count, right_count, self.obstacle, _, _ = self.avoid_obstacle(left_vis, 
@@ -136,19 +136,19 @@ class Controller:
             # else:
             #     self.stuck_drives = np.array([-1.4, -0.6])
 
-            if(odor_drives[1]>odor_drives[0]):
+            if(odor_drives[0]>odor_drives[1]):
                     self.stuck_drives = np.array([1.0, -1.0])
             else:
                 self.stuck_drives = np.array([-1.0, 1.0])
             
-        # if stuck, reverse the control signal and then turn around itself to try to get unstuck
+        #if stuck, reverse the control signal and then turn around itself to try to get unstuck
         if self.is_stuck:
-            # drives = -drives
+            #drives = -drives
             
             self.stuck_count += 1
             self.drives = self.stuck_drives
 
-            if(self.stuck_count < (self.stuck_duration/2.0)):
+            if(self.stuck_count < (self.stuck_duration*(3.0/5.0))):
                 self.drives = np.array([-1.0, -1.0])
             else :
                 self.drives = self.stuck_drives
@@ -157,18 +157,19 @@ class Controller:
                 # Reset the stuck count and switch back to normal mode
                 self.stuck_count = 0
                 self.is_stuck = False
+                self.immobile_count = -1000
                 print(f"Fin Stuck Mode au step {self.step_count}. Et c'est reparti pour un touuuur")
         
         # # print("odor drive : ", odor_drives, "  obstacle drive : ", obstacle_drives)
         # # drives = obstacle_drives*0 + odor_drives*1.0
-        # if self.is_stuck:
-        #     min_drive = -2.0
-        # else:
-        #     min_drive = 0.0
 
+        if self.is_stuck:
+            min_drive = -2.0
+        else:
+            min_drive = 0.0
 
-        #self.drives = np.clip(self.drives, min_drive, 2.0) #clip for safety ?
-        self.drives = np.clip(self.drives, -1.0, 2.5) #clip for safety ?
+        self.drives = np.clip(self.drives, min_drive, 2.0) #clip for safety ?
+        #self.drives = np.clip(self.drives, -1.0, 2.5) #clip for safety ?
 
 
         self.step_count += 1
@@ -187,7 +188,7 @@ class Controller:
 
     ###########
 
-    def check_stuck(self, N=1000, threshold=0.25):  # 2000 steps ~ 1 sec # 0.8 : always stuck
+    def check_stuck(self, N=80, threshold=0.04):  # 2000 steps ~ 1 sec # 0.8 : always stuck
         if len(self.head_position) < 2000:
             return False
 
@@ -691,7 +692,7 @@ class Controller:
         return head_position
     
 
-    def plot_head_trajectory(self):
+    def plot_head_trajectory(self, sim: MiniprojectSimulation):
         
         # Si la liste est vide (la simulation n'a pas tourné), on évite le crash
         if not self.head_position:
@@ -710,9 +711,10 @@ class Controller:
         # Trace la ligne de la trajectoire
         plt.plot(x_coords, y_coords, label="Trajectoire de la tête", color="blue", linewidth=2)
         #banana [-19.36779711 -23.66539834]
-
-        #banana_xy = np.array([30.07098571432481 , -6.076987186520356]) seed 67
-        banana_xy = np.array([-10.355681357019149 , 28.906774050637956])  #seed 777
+        banana_xy = sim.world.banana_xy
+        #banana_xy = np.array([30.07098571432481 , -6.076987186520356])
+        #banana_xy = np.array([30.07098571432481 , -6.076987186520356]) #seed 67
+        #banana_xy = np.array([-10.355681357019149 , 28.906774050637956])  #seed 777
         fly_xy = np.array([x_coords[-1], y_coords[-1]])
         print("final dist",np.linalg.norm(fly_xy - banana_xy))
 
