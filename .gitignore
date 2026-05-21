@@ -311,6 +311,7 @@ tags
 # Persistent undo
 [._]*.un~
 
+.claude
 ### VisualStudioCode ###
 .vscode/*
 # !.vscode/settings.json
