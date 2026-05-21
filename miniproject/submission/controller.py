@@ -52,9 +52,19 @@ class Controller:
         self.obstacle = False
         self.head_position = []
 
-    def step(self, sim: MiniprojectSimulation):
+        # --- stuck mode ---
+        self.is_stuck = False
+        self.stuck_count = 0
+        self.stuck_duration = 500  # Nombre de steps pendant lesquels on recule (arbitraire as fuck)
 
+        # self.immobile_count = 0
+        # self.immobile_threshold = 300  # Nombre de steps immobiles max avant de trigger le stuck mode
+        # self.window_size = 500 # fenêtre glissante
+        # self.movement_threshold = 0.05  # Distance min (en mm) pour considérer que la mouche a bougé
+
+    def step(self, sim: MiniprojectSimulation):
         self.head_position.append(self.get_head_position(sim))
+        stuck = self.check_stuck()
         
         olfaction = sim.get_olfaction(sim.fly.name)
         olfaction_smooth = None
@@ -72,7 +82,6 @@ class Controller:
         # get other observations as needed
         # drives = np.array([1.0, 1.0])  # replace with your control logic
         
-
         if self.step_count % 200 == 0:
             #print("vision")
             raw_vision = sim.get_raw_vision(sim.fly.name)
@@ -90,12 +99,48 @@ class Controller:
         else:
             self.drives = odor_drives
 
+        # Stuck mode :
+        # if not self.is_stuck and len(self.head_position) > self.window_size:
+        #     # distance parcourue depuis step précédent
+        #     pos_actuelle = np.array(self.head_position[-1])
+        #     pos_precedente = np.array(self.head_position[-self.window_size])
+        #     distance_parcourue = np.linalg.norm(pos_actuelle - pos_precedente)
+
+        #     if distance_parcourue < self.movement_threshold:
+        #         self.immobile_count += 1
+        #     else:
+        #         self.immobile_count = 0
+
+        #     if self.immobile_count >= self.immobile_threshold:
+        #         self.is_stuck = True
+        #         self.stuck_count = 0
+        #         self.immobile_count = 0
+        #         print(f"Moumouche coincéééééée ! Activation du Stuck Mode au step {self.step_count}")
+        if stuck:
+            self.is_stuck = True
         
+        # if stuck, reverse the control signal and then turn around itself to try to get unstuck
+        if self.is_stuck:
+            # drives = -drives
+            self.drives = np.array([-1.0, -0.5])
+            self.stuck_count += 1
+            print(f"Moumouche coincée Stuck Mode: step {self.stuck_count}")
+        
+            
+            if self.stuck_count >= self.stuck_duration:
+                # Reset the stuck count and switch back to normal mode
+                self.stuck_count = 0
+                self.is_stuck = False
+                print(f"Fin Stuck Mode au step {self.step_count}. Et c'est reparti pour un touuuur")
         
         # print("odor drive : ", odor_drives, "  obstacle drive : ", obstacle_drives)
         # drives = obstacle_drives*0 + odor_drives*1.0
-        self.drives = np.clip(self.drives, 0.0, 2.2) #clip for safety ?
-        self.step_count+=1
+        if self.is_stuck:
+            min_drive = -2.0
+        else:
+            min_drive = 0.0
+        self.drives = np.clip(self.drives, min_drive, 2.0) #clip for safety ?
+        self.step_count += 1
         joint_angles, adhesion = self.turning_controller.step(self.drives)
         return joint_angles, adhesion
 
@@ -110,6 +155,27 @@ class Controller:
             print("Saved video: raw_vision")
 
     ###########
+
+    def check_stuck(self, N=2000, threshold=0.35):  # 2000 steps ~ 1 sec # 0.8 : always stuck
+        if len(self.head_position) < 2:
+            return False
+
+        recent = np.array(self.head_position[-N:])
+
+        if recent.shape[0] < 2:
+            return False
+
+        # Compute mean position over window
+        mean_pos = np.mean(recent, axis=0)
+
+        # Last known position
+        last_pos = recent[-1]
+
+        # Distance from mean trajectory center
+        distance = np.linalg.norm(last_pos - mean_pos)
+
+        stuck = distance < threshold
+        return stuck
 
     def keep_top(self, img):
         """
