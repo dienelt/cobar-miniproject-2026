@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 from sklearn.linear_model import RANSACRegressor, LinearRegression
 
 
+
+#CPG Parameters 
 wave_phase_biases = np.array(
     [
         [0, 1, 2, 3, 4, 5],
@@ -18,38 +20,19 @@ wave_phase_biases = np.array(
 
 wave_coupling_weights = (wave_phase_biases > 0).astype(float) * 10.0
 
-def odor_intensity_to_control_signal(
-    odor_intensities,
-    attractive_gain=-500,
-):
-    attractive_intensities = np.average(
-        odor_intensities[:, 0].reshape(2, 2), axis=0, weights=[5, 5]
-    )
-    attractive_bias = (
-        attractive_gain
-        * (attractive_intensities[0] - attractive_intensities[1])
-        / attractive_intensities.mean()
-        if attractive_intensities.mean() != 0
-        else 0
-    )
-    
-    
-    effective_bias = attractive_bias
-    effective_bias_norm = np.tanh(effective_bias**2) * np.sign(effective_bias)
-
-    control_signal = np.ones(2)
-    side_to_modulate = int(effective_bias_norm > 0)
-    modulation_amount = np.abs(effective_bias_norm) * 1.0
-    control_signal[side_to_modulate] -= modulation_amount
-    return control_signal
 
 class Controller:
     def __init__(self, sim: MiniprojectSimulation):
-        # you may also implement your own turning controller
+
         from flygym.examples.locomotion import TurningController
 
         #self.turning_controller = TurningController(sim.timestep, intrinsic_freqs=np.ones(6) * 20, intrinsic_amps=np.ones(6) * 4)
-        self.turning_controller = TurningController(sim.timestep, phase_biases=wave_phase_biases,coupling_weights=wave_coupling_weights)
+        self.turning_controller = TurningController(sim.timestep, 
+                                                    intrinsic_freqs=np.ones(6) * 12,
+                                                    phase_biases=wave_phase_biases,
+                                                    coupling_weights=wave_coupling_weights,
+                                                    convergence_coefs=np.ones(6) * 50
+                                                    )
         #self.turning_controller = TurningController(sim.timestep)
 
         self.prev_vision = None
@@ -78,6 +61,7 @@ class Controller:
 
     def step(self, sim: MiniprojectSimulation):
         self.head_position.append(self.get_head_position(sim))
+
         stuck = self.check_stuck()
         
         olfaction = sim.get_olfaction(sim.fly.name)
@@ -89,13 +73,10 @@ class Controller:
             alpha = 0.001
             olfaction_smooth = (1-alpha) * olfaction_smooth + alpha * olfaction
         
-        #if self.step_count % 200 == 0:
         odor_drives = odor_intensity_to_control_signal(olfaction_smooth)
 
-        # implement your control algorithm here
-        # get other observations as needed
-        # drives = np.array([1.0, 1.0])  # replace with your control logic
         
+
         if self.step_count % 200 == 0:
             #print("vision")
             raw_vision = sim.get_raw_vision(sim.fly.name)
@@ -120,13 +101,6 @@ class Controller:
         else:
             self.drives = odor_drives
 
-        # Stuck mode :
-        # if not self.is_stuck and len(self.head_position) > self.window_size:
-        #     # distance parcourue depuis step précédent
-        #     pos_actuelle = np.array(self.head_position[-1])
-        #     pos_precedente = np.array(self.head_position[-self.window_size])
-        #     distance_parcourue = np.linalg.norm(pos_actuelle - pos_precedente)
-
         if stuck :
             self.immobile_count += 1
         else:
@@ -136,25 +110,20 @@ class Controller:
             self.is_stuck = True
             self.stuck_count = 0
             self.immobile_count = 0
-            # if(odor_drives[1]>odor_drives[0]):
-            #     self.stuck_drives = np.array([-0.6, -1.4])
-            # else:
-            #     self.stuck_drives = np.array([-1.4, -0.6])
-
+           
             if(odor_drives[0]>odor_drives[1]):
-                    self.stuck_drives = np.array([1.3, -1.3])
+                    self.stuck_drives = np.array([1.8, -1.8])
             else:
-                self.stuck_drives = np.array([-1.3, 1.3])
+                self.stuck_drives = np.array([-1.0, 1.0])
             
         #if stuck, reverse the control signal and then turn around itself to try to get unstuck
         if self.is_stuck:
-            #drives = -drives
-            
+
             self.stuck_count += 1
             self.drives = self.stuck_drives
 
             if(self.stuck_count < (self.stuck_duration*(3.0/5.0))):
-                self.drives = np.array([-0.5, -0.5])
+                self.drives = np.array([-1.0, -1.0])
             else :
                 self.drives = self.stuck_drives
                 
@@ -168,12 +137,12 @@ class Controller:
         # # print("odor drive : ", odor_drives, "  obstacle drive : ", obstacle_drives)
         # # drives = obstacle_drives*0 + odor_drives*1.0
 
-        if self.is_stuck:
-            min_drive = -1.0
+        if self.is_stuck: 
+            min_drive = -2.0 #1.0
         else:
             min_drive = 0.0
 
-        self.drives = np.clip(self.drives, min_drive, 1.8) #clip for safety ?
+        self.drives = np.clip(self.drives, min_drive, 2.0) #clip for safety ?
         #self.drives = np.clip(self.drives, -1.0, 2.5) #clip for safety ?
 
 
@@ -193,24 +162,48 @@ class Controller:
 
     ###########
 
-    def check_stuck(self, N=1000, threshold=0.5):
+    # def check_stuck(self, N=1000, threshold=0.5):
+    #     # Need enough history
+    #     if len(self.head_position) < N:
+    #         return False
+
+    #     recent = np.array(self.head_position[-N:])
+
+    #     if recent.shape[0] < 2:
+    #         return False
+
+    #     # Net displacement: distance from the start of the window to the end
+    #     net_displacement = np.linalg.norm(recent[-1] - recent[0])
+
+    #     # Consider stuck if the net distance covered over N steps is below threshold
+    #     stuck = net_displacement < threshold
+
+    #     return stuck
+
+
+    def check_stuck(self, N=1000, threshold=0.30):
         # Need enough history
         if len(self.head_position) < N:
-            return False, 0.0
+            return False
 
         recent = np.array(self.head_position[-N:])
 
         if recent.shape[0] < 2:
-            return False, 0.0
+            return False
 
-        # Net displacement: distance from the start of the window to the end
-        net_displacement = np.linalg.norm(recent[-1] - recent[0])
+        # Compute displacement between consecutive positions
+        step_movements = np.diff(recent, axis=0)
 
-        # Consider stuck if the net distance covered over N steps is below threshold
-        stuck = net_displacement < threshold
+        # Distance traveled at each step
+        step_distances = np.linalg.norm(step_movements, axis=1)
+
+        # Total movement over the window
+        cumulative_movement = np.sum(step_distances)
+
+        # Consider stuck if total movement is below threshold
+        stuck = cumulative_movement < threshold
 
         return stuck
-        
 
     def keep_top(self, img):
         """
@@ -373,142 +366,11 @@ class Controller:
         return filtered, skyline
         
 
-    # def avoid_obstacle(self, left_img, right_img, threshold=2600, k_turn=0.00005): #22900 : doesn't detect
-
-    #     drives = np.array([1.0, 1.0])
-    #     obstacle = False
-
-    #     # left_count = np.count_nonzero(left_img)
-    #     # right_count = np.count_nonzero(right_img)
-
-    #     left_count = np.count_nonzero(np.any(left_img > 0, axis=-1))
-    #     right_count = np.count_nonzero(np.any(right_img > 0, axis=-1))
-
-    #     if(left_count > threshold):
-    #         turn_strength = left_count*k_turn
-    #         obstacle = True
-    #         drives = np.array([
-    #             1.0 + turn_strength,  # left
-    #             1.0 - turn_strength   # right
-    #         ])
-
-    #     elif (right_count > threshold):
-    #         if(right_count > left_count):
-    #             turn_strength = right_count*k_turn
-    #             obstacle = True
-    #             drives = np.array([
-    #                 1.0 - turn_strength,  # left
-    #                 1.0 + turn_strength   # right
-    #             ])
-
-    #     return drives, left_count, right_count, obstacle
-
-    # def avoid_obstacle(self, left_img, right_img, skyline_L, skyline_R, height_threshold=170, k_turn=0.001): #160x255 (green dist to hotizon)
-    #     drives = np.array([1.0, 1.0])
-    #     obstacle = False
-
-    #     def get_highest_green(img, skyline):
-    #         mask = np.any(img > 0, axis=-1)
-    #         ys, xs = np.where(mask)
-
-    #         if len(ys) == 0:
-    #             return None
-
-    #         # Compute distance above skyline
-    #         distances = []
-
-    #         for y, x in zip(ys, xs):
-    #             skyline_y = skyline[x]
-    #             if y < skyline_y:  # above skyline
-    #                 distances.append(skyline_y - y)
-
-    #         if len(distances) == 0:
-    #             return None
-
-    #         return max(distances)  # highest relative height
-        
-    #     def get_green_stats(img, skyline):
-    #         mask = np.any(img > 0, axis=-1)
-    #         ys, xs = np.where(mask)
-
-    #         if len(ys) == 0:
-    #             return None, 0
-
-    #         distances = []
-    #         count = 0
-
-    #         for y, x in zip(ys, xs):
-    #             skyline_y = skyline[x]
-    #             if y < skyline_y:  # above skyline
-    #                 d = skyline_y - y
-    #                 distances.append(d)
-    #                 count += 1
-
-    #         if len(distances) == 0:
-    #             return None, 0
-
-    #         return max(distances), count
-
-
-    #     # left_dist = get_highest_green(left_img, skyline_L)
-    #     # right_dist = get_highest_green(right_img, skyline_R)
-
-    #     left_dist, left_count = get_green_stats(left_img, skyline_L)
-    #     right_dist, right_count = get_green_stats(right_img, skyline_R)
-
-    #     # # Convert to "height from bottom" (more intuitive)
-    #     # h = left_img.shape[0]
-
-    #     # left_height = h - left_top if left_top is not None else 0
-    #     # right_height = h - right_top if right_top is not None else 0
-
-    #     # Decide obstacle
-    #     left_trigger = left_dist is not None and left_dist > height_threshold
-    #     right_trigger = right_dist is not None and right_dist > height_threshold
-    #     # if left_dist is not None and left_dist > height_threshold:
-    #     #     obstacle = True
-    #     #     turn_strength = (left_dist - height_threshold) * k_turn
-    #     #     drives = np.array([
-    #     #         1.0 + turn_strength,  # turn right
-    #     #         1.0 - turn_strength
-    #     #     ])
-
-    #     # elif right_dist is not None and right_dist > height_threshold:
-    #     #     obstacle = True
-    #     #     turn_strength = (right_dist - height_threshold) * k_turn
-    #     #     drives = np.array([
-    #     #         1.0 - turn_strength,
-    #     #         1.0 + turn_strength   # turn left
-    #     #     ])
-
-    #     if left_trigger and right_trigger:
-    #         obstacle = True
-
-    #         if left_count > right_count:
-    #             turn_strength = (left_dist - height_threshold) * k_turn
-    #             drives = np.array([1.0 + turn_strength, 1.0 - turn_strength])
-    #         else:
-    #             turn_strength = (right_dist - height_threshold) * k_turn
-    #             drives = np.array([1.0 - turn_strength, 1.0 + turn_strength])
-
-    #     elif left_trigger:
-    #         obstacle = True
-    #         turn_strength = (left_dist - height_threshold) * k_turn
-    #         drives = np.array([1.0 + turn_strength, 1.0 - turn_strength])
-
-    #     elif right_trigger:
-    #         obstacle = True
-    #         turn_strength = (right_dist - height_threshold) * k_turn
-    #         drives = np.array([1.0 - turn_strength, 1.0 + turn_strength])
-
-    #     return drives, left_dist, right_dist, obstacle
-
-
 
     ###############
 
     def avoid_obstacle(self, left_img, right_img, skyline_L, skyline_R,
-                   width_threshold_min=40, width_threshold_max=80, k_turn=0.055): #vid 27 : 100, 0.01 #vid 28 : 100, 0.035
+                   width_threshold_min=40, width_threshold_max=80, k_turn=0.055): #vid 27 : 100, 0.01 #vid 28 : 100, 0.035 #before at 0.055
 
         drives = np.array([1.0, 1.0])
         obstacle = False
@@ -738,3 +600,29 @@ class Controller:
         plt.axis("equal")  # Très important pour ne pas déformer les virages de la mouche !
         
         plt.show()
+
+
+def odor_intensity_to_control_signal(
+    odor_intensities,
+    attractive_gain=-500,
+):
+    attractive_intensities = np.average(
+        odor_intensities[:, 0].reshape(2, 2), axis=0, weights=[5, 5]
+    )
+    attractive_bias = (
+        attractive_gain
+        * (attractive_intensities[0] - attractive_intensities[1])
+        / attractive_intensities.mean()
+        if attractive_intensities.mean() != 0
+        else 0
+    )
+    
+    
+    effective_bias = attractive_bias
+    effective_bias_norm = np.tanh(effective_bias**2) * np.sign(effective_bias)
+
+    control_signal = np.ones(2)
+    side_to_modulate = int(effective_bias_norm > 0)
+    modulation_amount = np.abs(effective_bias_norm) * 1.0
+    control_signal[side_to_modulate] -= modulation_amount
+    return control_signal
