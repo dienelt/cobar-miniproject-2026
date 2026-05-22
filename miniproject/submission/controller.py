@@ -130,7 +130,7 @@ class Controller:
         else:
             self.immobile_count = 0
 
-        if self.immobile_count >= self.immobile_threshold:
+        if ((self.immobile_count >= self.immobile_threshold) and not(self.is_stuck)):
             self.is_stuck = True
             self.stuck_count = 0
             self.immobile_count = 0
@@ -191,8 +191,9 @@ class Controller:
 
     ###########
 
-    def check_stuck(self, N=800, threshold=0.23):  # 2000 steps ~ 1 sec # 0.8 : always stuck
-        if len(self.head_position) < 2000:
+    def check_stuck(self, N=1000, threshold=0.25):
+        # Need enough history
+        if len(self.head_position) < N:
             return False
 
         recent = np.array(self.head_position[-N:])
@@ -200,16 +201,18 @@ class Controller:
         if recent.shape[0] < 2:
             return False
 
-        # Compute mean position over window
-        mean_pos = np.mean(recent, axis=0)
+        # Compute displacement between consecutive positions
+        step_movements = np.diff(recent, axis=0)
 
-        # Last known position
-        last_pos = recent[-1]
+        # Distance traveled at each step
+        step_distances = np.linalg.norm(step_movements, axis=1)
 
-        # Distance from mean trajectory center
-        distance = np.linalg.norm(last_pos - mean_pos)
+        # Total movement over the window
+        cumulative_movement = np.sum(step_distances)
 
-        stuck = distance < threshold
+        # Consider stuck if total movement is below threshold
+        stuck = cumulative_movement < threshold
+
         return stuck
 
     def keep_top(self, img):
