@@ -5,49 +5,15 @@ import matplotlib.pyplot as plt
 from sklearn.linear_model import RANSACRegressor, LinearRegression
 
 
-wave_phase_biases = np.array(
-    [
-        [0, 1, 2, 3, 4, 5],
-        [5, 0, 1, 2, 3, 4],
-        [4, 5, 0, 1, 2, 3],
-        [3, 4, 5, 0, 1, 2],
-        [2, 3, 4, 5, 0, 1],
-        [1, 2, 3, 4, 5, 0],
-    ]
-) * (2 * np.pi / 6)
-
-def odor_intensity_to_control_signal(
-    odor_intensities,
-    attractive_gain=-500,
-):
-    attractive_intensities = np.average(
-        odor_intensities[:, 0].reshape(2, 2), axis=0, weights=[5, 5]
-    )
-    attractive_bias = (
-        attractive_gain
-        * (attractive_intensities[0] - attractive_intensities[1])
-        / attractive_intensities.mean()
-        if attractive_intensities.mean() != 0
-        else 0
-    )
-    
-    
-    effective_bias = attractive_bias
-    effective_bias_norm = np.tanh(effective_bias**2) * np.sign(effective_bias)
-
-    control_signal = np.ones(2)
-    side_to_modulate = int(effective_bias_norm > 0)
-    modulation_amount = np.abs(effective_bias_norm) * 1.0
-    control_signal[side_to_modulate] -= modulation_amount
-    return control_signal
 
 class Controller:
     def __init__(self, sim: MiniprojectSimulation):
         from flygym.examples.locomotion import TurningController
 
-        #self.turning_controller = TurningController(sim.timestep, intrinsic_freqs=np.ones(6) * 20, intrinsic_amps=np.ones(6) * 4)
-        # self.turning_controller = TurningController(sim.timestep, phase_biases=wave_phase_biases)
-        self.turning_controller = TurningController(sim.timestep,convergence_coefs=np.ones(6) * 50,intrinsic_freqs=12*np.ones(6), intrinsic_amps=np.ones(6) * 4)
+        self.turning_controller = TurningController(sim.timestep,
+                                                    convergence_coefs=np.ones(6) * 50,
+                                                    intrinsic_freqs=12*np.ones(6), 
+                                                    intrinsic_amps=np.ones(6) * 4)
 
         self.prev_vision = None
         self.step_count = 0
@@ -66,11 +32,12 @@ class Controller:
         # --- stuck mode ---
         self.is_stuck = False
         self.stuck_count = 0
-        self.stuck_duration = 7000  # Nb of step for the stuck movement
+        self.stuck_duration = 8000  # Nb of step for the stuck movement
 
         self.immobile_count = 0
-        self.immobile_threshold = 2000  # Nb of step to enter to stuck mode 
+        self.immobile_threshold = 1700  # Nb of step to enter to stuck mode 
         
+        self.avoid_drives = None
 
     def step(self, sim: MiniprojectSimulation):
 
@@ -78,7 +45,7 @@ class Controller:
         self.head_position.append(self.get_head_position(sim))
         stuck = self.check_stuck()
         
-
+        ###Olfaction###
         olfaction = sim.get_olfaction(sim.fly.name)
         olfaction_smooth = None
 
@@ -90,9 +57,9 @@ class Controller:
         
         odor_drives = odor_intensity_to_control_signal(olfaction_smooth)
 
-    
+        ###Obstacle Avoidance### 
         if self.step_count % 200 == 0:
-            #print("vision")
+    
             raw_vision = sim.get_raw_vision(sim.fly.name)
             # self.plot_raw_vision(raw_vision)
             self.write_raw_vision_video(raw_vision, stuck)
@@ -107,10 +74,17 @@ class Controller:
                                                                                                      crop_right_processed, 
                                                                                                      skyline_L, 
                                                                                                      skyline_R,
-                                                                                                     width_threshold_min=42.5,
+                                                                                                     width_threshold_min=45,
                                                                                                      width_threshold_max=80)
             
-        if(self.obstacle):
+            self.avoid_drives = dragonfly_avoidance_drives(raw_vision)
+
+        ###Determine if there is a Dragonlfly
+        if (self.avoid_drives!=None):
+            print("Dragonfly")
+            self.drives = self.avoid_drives
+        ### Prioritize dragonfly avoidance on obstacle avoidance
+        elif(self.obstacle):
             self.drives = self.obstacle_drives
         else:
             self.drives = odor_drives
@@ -151,7 +125,7 @@ class Controller:
         
         #If stuck all negative drives
         if self.is_stuck:
-            min_drive = -1.3
+            min_drive = -2.0
         else:
             min_drive = 0.0
 
@@ -174,10 +148,10 @@ class Controller:
             self.raw_video_writer.release()
             print("Saved video: raw_vision")
 
-   ##### Our Function 
+   ##### Our Functions #####
 
 
-    def check_stuck(self, N=1000, threshold=0.80):
+    def check_stuck(self, N=1000, threshold=0.30):
         """
         Calculate the cumulative movement and determined if the fly is stuck
         """
@@ -349,6 +323,10 @@ class Controller:
 
     def avoid_obstacle(self, left_img, right_img, skyline_L, skyline_R,
                    width_threshold_min=40, width_threshold_max=80, k_turn=0.055): 
+        """
+        Deter
+        
+        """
 
         drives = np.array([1.0, 1.0])
         obstacle = False
@@ -516,6 +494,9 @@ class Controller:
         self.raw_video_writer.write(frame)
 
 
+
+
+
     ########### Position of the Fly ###########
 
     def get_head_position(self, sim: MiniprojectSimulation):
@@ -539,42 +520,119 @@ class Controller:
 
 
     def plot_head_trajectory(self, sim: MiniprojectSimulation):
-        ##############TO REMOVE #####################
         
-        # Si la liste est vide (la simulation n'a pas tourné), on évite le crash
         if not self.head_position:
-            print("Error : Aucun historique de position à tracer.")
+            print("Error Nothing to plot.")
             return
 
         positions = np.array(self.head_position)
 
 
-        x_coords = positions[:, 0]  # Première colonne = X
-        y_coords = positions[:, 1]  # Deuxième colonne = Y
+        x_coords = positions[:, 0]  
+        y_coords = positions[:, 1]  
         
         plt.figure(figsize=(8, 6))
     
-        # Trace la ligne de la trajectoire
-        plt.plot(x_coords, y_coords, label="Trajectoire de la tête", color="blue", linewidth=2)
-        #banana [-19.36779711 -23.66539834]
+        plt.plot(x_coords, y_coords, label="Head Trajectory", color="blue", linewidth=2)
         
-        #banana_xy = np.array([30.07098571432481 , -6.076987186520356])
-        #banana_xy = np.array([30.07098571432481 , -6.076987186520356]) #seed 67
-        #banana_xy = np.array([-10.355681357019149 , 28.906774050637956])  #seed 777
         banana_xy = sim.world.banana_xy
         fly_xy = np.array([x_coords[-1], y_coords[-1]])
         print("final dist",np.linalg.norm(fly_xy - banana_xy))
 
         # Marque le point de départ et d'arrivée
-        plt.scatter(x_coords[0], y_coords[0], color="green", edgecolors="black", s=100, label="Départ", zorder=5)
-        plt.scatter(x_coords[-1], y_coords[-1], color="red", edgecolors="black", s=100, label="Arrivée", zorder=5)
+        plt.scatter(x_coords[0], y_coords[0], color="green", edgecolors="black", s=100, label="Start", zorder=5)
+        plt.scatter(x_coords[-1], y_coords[-1], color="red", edgecolors="black", s=100, label="Finished", zorder=5)
         plt.scatter(banana_xy[0], banana_xy[1], color="yellow", edgecolors="black", s=100, label="Banana", zorder=5)
         # Habillage du graphique
-        plt.title("Trajectoire de la tête de la mouche (Plan X-Y)")
+        plt.title("Trajectory of the fly's head")
         plt.xlabel("Position X (mm)")
         plt.ylabel("Position Y (mm)")
         plt.grid(True, linestyle="--", alpha=0.6)
         plt.legend()
-        plt.axis("equal")  # Très important pour ne pas déformer les virages de la mouche !
+        plt.axis("equal")  
         
         plt.show()
+
+
+########### Odor ###########
+
+def odor_intensity_to_control_signal(
+    odor_intensities,
+    attractive_gain=-500,
+):
+    attractive_intensities = np.average(
+        odor_intensities[:, 0].reshape(2, 2), axis=0, weights=[5, 5]
+    )
+    attractive_bias = (
+        attractive_gain
+        * (attractive_intensities[0] - attractive_intensities[1])
+        / attractive_intensities.mean()
+        if attractive_intensities.mean() != 0
+        else 0
+    )
+    
+    
+    effective_bias = attractive_bias
+    effective_bias_norm = np.tanh(effective_bias**2) * np.sign(effective_bias)
+
+    control_signal = np.ones(2)
+    side_to_modulate = int(effective_bias_norm > 0)
+    modulation_amount = np.abs(effective_bias_norm) * 1.0
+    control_signal[side_to_modulate] -= modulation_amount
+    return control_signal
+
+########### Dragonfly ###########
+
+def detect_red(raw_vision, red_ratio=0.6):
+    """Red pixel fraction and horizontal center per eye.
+    Returns [(area_L, xcenter_L), (area_R, xcenter_R)].
+    xcenter is normalized [0, 1]. For the left eye, small = anterior.
+    For the right eye, large = anterior."""
+    results = []
+    for eye_img in raw_vision:
+        r = eye_img[..., 0].astype(np.float32)
+        g = eye_img[..., 1].astype(np.float32)
+        b = eye_img[..., 2].astype(np.float32)
+        is_red = (r / (r + g + b + 1e-6)) > red_ratio
+        area = is_red.mean()
+        if area > 0:
+            _, cols = np.where(is_red)
+            xcenter = cols.mean() / eye_img.shape[1]
+        else:
+            xcenter = 0.5
+        results.append((area, xcenter))
+    return results
+
+
+def dragonfly_avoidance_drives(raw_vision, looming_thr=0.0001, open_loop_thr=0.01):
+    (area_l, xc_l), (area_r, xc_r) = detect_red(raw_vision)
+    total = area_l + area_r
+
+    if total < looming_thr:
+        return None                        # no dragonfly → normal nav
+
+    if total > open_loop_thr:
+        return np.array([1.0, 1.0])        # open-loop → full forward, it overshoots behind us
+
+    # Looming: turn to keep dragonfly at ~90° (xcenter ≈ 0.5 in the dominant eye)
+    # Pick the eye that sees more red
+    if area_l >= area_r:
+        xcenter = xc_l
+    else:
+        xcenter = xc_r
+
+    # Both eyes share the same rule:
+    #   xcenter < 0.5 → dragonfly toward anterior → turn right (slow right)
+    #   xcenter > 0.5 → dragonfly toward posterior → turn left (slow left)
+    #   xcenter ≈ 0.5 → already perpendicular → full forward
+    drives = np.array([1.0, 1.0])
+    deviation = abs(xcenter - 0.5) * 2     # 0 = centered, 1 = at edge
+    if deviation < 0.15:
+        return drives                      # already roughly perpendicular
+
+    turn_strength = np.clip(1 - deviation * 2, 0.3, 1.0)
+    if xcenter < 0.5:
+        return np.array([1.0, 0.3])          # slow right → turn right
+    else:
+        return np.array([0.3, 1.0])         # slow left → turn left
+
