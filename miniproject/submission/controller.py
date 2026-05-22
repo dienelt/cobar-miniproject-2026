@@ -164,7 +164,7 @@ class Controller:
             self.drives = self.stuck_drives
 
             if(self.stuck_count < (self.stuck_duration*(3.0/5.0))):
-                self.drives = np.array([-0.5, -0.5])
+                self.drives = np.array([-1.0, -1.0])
             else :
                 self.drives = self.stuck_drives
                 
@@ -209,22 +209,27 @@ class Controller:
 
     ###########
 
-    def check_stuck(self, N=1000, threshold=0.5):
+    def check_stuck(self, N=800, threshold=0.23):
         # Need enough history
-        if len(self.head_position) < N:
-            return False, 0.0
+        if len(self.head_position) < 8000:
+            return False
 
         recent = np.array(self.head_position[-N:])
 
         if recent.shape[0] < 2:
-            return False, 0.0
+            return False
 
-        # Net displacement: distance from the start of the window to the end
-        net_displacement = np.linalg.norm(recent[-1] - recent[0])
+        # Compute mean position over window
+        mean_pos = np.mean(recent, axis=0)
+        # Last known position
+        last_pos = recent[-1]
 
-        # Consider stuck if the net distance covered over N steps is below threshold
-        stuck = net_displacement < threshold
+        # Distance from mean trajectory center
+        distance = np.linalg.norm(last_pos - mean_pos)
 
+        stuck = distance < threshold
+
+        # return False
         return stuck
         
 
