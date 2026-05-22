@@ -66,8 +66,9 @@ class Controller:
         self.obstacle = False
         self.head_position = []
         self.stuck_positions = []
+        self.end_stuck_positions = []
         self.maneuver_segments = []
-        self._current_maneuver_start = None
+        self.current_maneuver_start = None
 
         # --- stuck mode ---
         self.is_stuck = False
@@ -99,7 +100,7 @@ class Controller:
         # get other observations as needed
         # drives = np.array([1.0, 1.0])  # replace with your control logic
         
-        if self.step_count % 500 == 0:
+        if self.step_count % 200 == 0:
             #print("vision")
             raw_vision = sim.get_raw_vision(sim.fly.name)
             # self.plot_raw_vision(raw_vision)
@@ -140,8 +141,8 @@ class Controller:
             self.stuck_count = 0
             self.immobile_count = 0
             
-            if self._current_maneuver_start is None:
-                self._current_maneuver_start = self.step_count
+            if self.current_maneuver_start is None:
+                self.current_maneuver_start = self.step_count
             
             self.stuck_positions.append(self.head_position[-1])
 
@@ -173,9 +174,10 @@ class Controller:
                 self.is_stuck = False
                 self.immobile_count = 0
                 
-                if self._current_maneuver_start is not None:
-                    self.maneuver_segments.append((self._current_maneuver_start, self.step_count))
-                    self._current_maneuver_start = None
+                if self.current_maneuver_start is not None:
+                    self.end_stuck_positions.append(self.head_position[-1])
+                    self.maneuver_segments.append((self.current_maneuver_start, self.step_count))
+                    self.current_maneuver_start = None
                 
                 print(f"Fin Stuck Mode au step {self.step_count}. Et c'est reparti pour un touuuur")
         
@@ -734,8 +736,7 @@ class Controller:
     
     
     def get_trajectory_data(self):
-        return np.array(self.head_position), np.array(self.stuck_positions), np.array(self.maneuver_segments)
-    
+        return np.array(self.head_position), np.array(self.stuck_positions), np.array(self.maneuver_segments), np.array(self.end_stuck_positions)
 
     def plot_head_trajectory(self, sim: MiniprojectSimulation):
         
