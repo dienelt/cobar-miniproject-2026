@@ -100,12 +100,14 @@ class Controller:
             # self.plot_raw_vision(raw_vision)
             self.write_raw_vision_video(raw_vision, stuck)
             images = np.asarray(raw_vision)  # (2, H, W, 3)
-            crop_left = self.keep_middle_left(images[0],threshold=2/5)
-            crop_right = self.keep_middle_right(images[1],threshold=3/5)
-            left_vis, skyline_L = self.full_process(crop_left)
-            right_vis, skyline_R = self.full_process(crop_right)
-            self.obstacle_drives, left_count, right_count, self.obstacle, _, _ = self.avoid_obstacle(left_vis, 
-                                                                                                     right_vis, 
+
+            
+            left_vis, skyline_L = self.full_process(images[0])
+            right_vis, skyline_R = self.full_process(images[1])
+            crop_left_processed = self.keep_middle_left(left_vis,threshold=2/5)
+            crop_right_processed = self.keep_middle_right(right_vis,threshold=3/5)
+            self.obstacle_drives, left_count, right_count, self.obstacle, _, _ = self.avoid_obstacle(crop_left_processed, 
+                                                                                                     crop_right_processed, 
                                                                                                      skyline_L, 
                                                                                                      skyline_R,
                                                                                                      width_threshold_min=45,
@@ -598,33 +600,36 @@ class Controller:
 
     def write_raw_vision_video(self, raw_vision, stuck):
         images = np.asarray(raw_vision)  # (2, H, W, 3)
-        crop_left = self.keep_middle_left(images[0])
-        crop_right = self.keep_middle_right(images[1])
-        # crop_left = images[0]
-        # crop_right = images[1]
+       
+        crop_left = self.keep_middle_left(images[0],threshold=2/5)
+        crop_right = self.keep_middle_right(images[1],threshold=3/5)
         # Filtered green images
         left_green = self.filter_green(crop_left)
         right_green = self.filter_green(crop_right)
         # print("size : ", left_green.shape)
 
         # Above skyline + green filtered
-        left_processed, skyline_L = self.full_process(crop_left)
-        right_processed, skyline_R = self.full_process(crop_right)
+        left_processed, skyline_L = self.full_process(images[0])
+        right_processed, skyline_R = self.full_process(images[1])
+
+        crop_left_processed = self.keep_middle_left(left_processed,threshold=2/5)
+        crop_right_processed = self.keep_middle_right(right_processed,threshold=3/5)
+
 
         # Original images with skyline
         left_original = self.draw_skyline(crop_left, skyline_L)
         right_original = self.draw_skyline(crop_right, skyline_R)
 
         drives, left_count, right_count, obstacle, left_seg, right_seg = self.avoid_obstacle(
-            left_processed,
-            right_processed, skyline_L, skyline_R
+            crop_left_processed,
+             crop_right_processed, skyline_L, skyline_R
         )
         drives = np.clip(drives, -1.0, 2.5)
         left_original = self.draw_width(left_original, left_seg)
         right_original = self.draw_width(right_original, right_seg)
 
         top = np.concatenate([left_original, right_original], axis=1)
-        middle = np.concatenate([left_processed, right_processed], axis=1)
+        middle = np.concatenate([crop_left_processed, crop_right_processed], axis=1)
         bottom = np.concatenate([left_green, right_green], axis=1)
 
         frame = np.concatenate([top, middle, bottom], axis=0)
@@ -668,7 +673,7 @@ class Controller:
             self.raw_frame_size = (w, h)
 
             self.raw_video_writer = cv2.VideoWriter(
-                "raw_vision_new_threshold.webm",
+                "raw_vision.webm",
                 cv2.VideoWriter_fourcc(*"VP09"),
                 30,
                 self.raw_frame_size
@@ -712,10 +717,11 @@ class Controller:
         # Trace la ligne de la trajectoire
         plt.plot(x_coords, y_coords, label="Trajectoire de la tête", color="blue", linewidth=2)
         #banana [-19.36779711 -23.66539834]
-        banana_xy = sim.world.banana_xy
+        
         #banana_xy = np.array([30.07098571432481 , -6.076987186520356])
         #banana_xy = np.array([30.07098571432481 , -6.076987186520356]) #seed 67
         #banana_xy = np.array([-10.355681357019149 , 28.906774050637956])  #seed 777
+        banana_xy = sim.world.banana_xy
         fly_xy = np.array([x_coords[-1], y_coords[-1]])
         print("final dist",np.linalg.norm(fly_xy - banana_xy))
 
