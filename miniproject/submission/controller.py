@@ -63,6 +63,9 @@ class Controller:
         self.drives = [0,0]
         self.obstacle = False
         self.head_position = []
+        self.stuck_positions = []
+        self.maneuver_segments = []
+        self._current_maneuver_start = None
 
         # --- stuck mode ---
         self.is_stuck = False
@@ -70,7 +73,7 @@ class Controller:
         self.stuck_duration = 8000  # Nombre de steps pendant lesquels on recule (arbitraire as fuck)
 
         self.immobile_count = 0
-        self.immobile_threshold = 1700  # Nombre de steps immobiles max avant de trigger le stuck mode
+        self.immobile_threshold = 1000  # Nombre de steps immobiles max avant de trigger le stuck mode
         # self.window_size = 500 # fenêtre glissante
         # self.movement_threshold = 0.05  # Distance min (en mm) pour considérer que la mouche a bougé
 
@@ -94,7 +97,7 @@ class Controller:
         # get other observations as needed
         # drives = np.array([1.0, 1.0])  # replace with your control logic
         
-        if self.step_count % 200 == 0:
+        if self.step_count % 500 == 0:
             #print("vision")
             raw_vision = sim.get_raw_vision(sim.fly.name)
             # self.plot_raw_vision(raw_vision)
@@ -130,10 +133,16 @@ class Controller:
         else:
             self.immobile_count = 0
 
-        if self.immobile_count >= self.immobile_threshold:
+        if ((self.immobile_count >= self.immobile_threshold) and (not self.is_stuck)):
             self.is_stuck = True
             self.stuck_count = 0
             self.immobile_count = 0
+            
+            if self._current_maneuver_start is None:
+                self._current_maneuver_start = self.step_count
+            
+            self.stuck_positions.append(self.head_position[-1])
+
             # if(odor_drives[1]>odor_drives[0]):
             #     self.stuck_drives = np.array([-0.6, -1.4])
             # else:
@@ -161,6 +170,11 @@ class Controller:
                 self.stuck_count = 0
                 self.is_stuck = False
                 self.immobile_count = 0
+                
+                if self._current_maneuver_start is not None:
+                    self.maneuver_segments.append((self._current_maneuver_start, self.step_count))
+                    self._current_maneuver_start = None
+                
                 print(f"Fin Stuck Mode au step {self.step_count}. Et c'est reparti pour un touuuur")
         
         # # print("odor drive : ", odor_drives, "  obstacle drive : ", obstacle_drives)
@@ -191,8 +205,9 @@ class Controller:
 
     ###########
 
-    def check_stuck(self, N=800, threshold=0.23):  # 2000 steps ~ 1 sec # 0.8 : always stuck
-        if len(self.head_position) < 2000:
+    def check_stuck(self, N=1000, threshold=0.25):
+        # Need enough history
+        if len(self.head_position) < N:
             return False
 
         recent = np.array(self.head_position[-N:])
@@ -200,17 +215,40 @@ class Controller:
         if recent.shape[0] < 2:
             return False
 
-        # Compute mean position over window
-        mean_pos = np.mean(recent, axis=0)
+        # Compute displacement between consecutive positions
+        step_movements = np.diff(recent, axis=0)
 
-        # Last known position
-        last_pos = recent[-1]
+        # Distance traveled at each step
+        step_distances = np.linalg.norm(step_movements, axis=1)
 
-        # Distance from mean trajectory center
-        distance = np.linalg.norm(last_pos - mean_pos)
+        # Total movement over the window
+        cumulative_movement = np.sum(step_distances)
 
-        stuck = distance < threshold
+        # Consider stuck if total movement is below threshold
+        stuck = cumulative_movement < threshold
+
         return stuck
+
+    # def check_stuck(self, N=800, threshold=0.2):  # 2000 steps ~ 1 sec # 0.8 : always stuck
+    #     if len(self.head_position) < 2000:
+    #         return False
+
+    #     recent = np.array(self.head_position[-N:])
+
+    #     if recent.shape[0] < 2:
+    #         return False
+
+    #     # Compute mean position over window
+    #     mean_pos = np.mean(recent, axis=0)
+
+    #     # Last known position
+    #     last_pos = recent[-1]
+
+    #     # Distance from mean trajectory center
+    #     distance = np.linalg.norm(last_pos - mean_pos)
+
+    #     stuck = distance < threshold
+    #     return stuck
 
     def keep_top(self, img):
         """
@@ -696,6 +734,10 @@ class Controller:
         head_position = all_positions[head_index]
 
         return head_position
+    
+    
+    def get_trajectory_data(self):
+        return np.array(self.head_position), np.array(self.stuck_positions), np.array(self.maneuver_segments)
     
 
     def plot_head_trajectory(self, sim: MiniprojectSimulation):
