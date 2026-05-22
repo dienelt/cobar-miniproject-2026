@@ -16,6 +16,8 @@ wave_phase_biases = np.array(
     ]
 ) * (2 * np.pi / 6)
 
+wave_coupling_weights = (wave_phase_biases > 0).astype(float) * 10.0
+
 def odor_intensity_to_control_signal(
     odor_intensities,
     attractive_gain=-500,
@@ -47,8 +49,8 @@ class Controller:
         from flygym.examples.locomotion import TurningController
 
         #self.turning_controller = TurningController(sim.timestep, intrinsic_freqs=np.ones(6) * 20, intrinsic_amps=np.ones(6) * 4)
-        # self.turning_controller = TurningController(sim.timestep, phase_biases=wave_phase_biases)
-        self.turning_controller = TurningController(sim.timestep)
+        self.turning_controller = TurningController(sim.timestep, phase_biases=wave_phase_biases,coupling_weights=wave_coupling_weights)
+        #self.turning_controller = TurningController(sim.timestep)
 
         self.prev_vision = None
         self.step_count = 0
@@ -70,7 +72,7 @@ class Controller:
         # --- stuck mode ---
         self.is_stuck = False
         self.stuck_count = 0
-        self.stuck_duration = 8000  # Nombre de steps pendant lesquels on recule (arbitraire as fuck)
+        self.stuck_duration = 9000  # Nombre de steps pendant lesquels on recule (arbitraire as fuck)
 
         self.immobile_count = 0
         self.immobile_threshold = 1000  # Nombre de steps immobiles max avant de trigger le stuck mode
@@ -133,7 +135,7 @@ class Controller:
         else:
             self.immobile_count = 0
 
-        if ((self.immobile_count >= self.immobile_threshold) and (not self.is_stuck)):
+        if ((self.immobile_count >= self.immobile_threshold) and not(self.is_stuck)):
             self.is_stuck = True
             self.stuck_count = 0
             self.immobile_count = 0
@@ -161,7 +163,7 @@ class Controller:
             self.drives = self.stuck_drives
 
             if(self.stuck_count < (self.stuck_duration*(3.0/5.0))):
-                self.drives = np.array([-1.0, -1.0])
+                self.drives = np.array([-0.5, -0.5])
             else :
                 self.drives = self.stuck_drives
                 
@@ -181,11 +183,11 @@ class Controller:
         # # drives = obstacle_drives*0 + odor_drives*1.0
 
         if self.is_stuck:
-            min_drive = -2.0
+            min_drive = -1.0
         else:
             min_drive = 0.0
 
-        self.drives = np.clip(self.drives, min_drive, 2.0) #clip for safety ?
+        self.drives = np.clip(self.drives, min_drive, 1.8) #clip for safety ?
         #self.drives = np.clip(self.drives, -1.0, 2.5) #clip for safety ?
 
 
@@ -205,29 +207,24 @@ class Controller:
 
     ###########
 
-    def check_stuck(self, N=1000, threshold=0.25):
+    def check_stuck(self, N=1000, threshold=0.5):
         # Need enough history
         if len(self.head_position) < N:
-            return False
+            return False, 0.0
 
         recent = np.array(self.head_position[-N:])
 
         if recent.shape[0] < 2:
-            return False
+            return False, 0.0
 
-        # Compute displacement between consecutive positions
-        step_movements = np.diff(recent, axis=0)
+        # Net displacement: distance from the start of the window to the end
+        net_displacement = np.linalg.norm(recent[-1] - recent[0])
 
-        # Distance traveled at each step
-        step_distances = np.linalg.norm(step_movements, axis=1)
-
-        # Total movement over the window
-        cumulative_movement = np.sum(step_distances)
-
-        # Consider stuck if total movement is below threshold
-        stuck = cumulative_movement < threshold
+        # Consider stuck if the net distance covered over N steps is below threshold
+        stuck = net_displacement < threshold
 
         return stuck
+        
 
     # def check_stuck(self, N=800, threshold=0.2):  # 2000 steps ~ 1 sec # 0.8 : always stuck
     #     if len(self.head_position) < 2000:
