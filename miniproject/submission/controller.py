@@ -79,11 +79,49 @@ def dragonfly_avoidance_drives(raw_vision, looming_thr=0.0001, open_loop_thr=0.0
     else:
         return np.array([0.3, 1.0])         # slow left → turn left
 
+tripod_phase_biases = np.pi * np.array([
+    [0, 1, 0, 1, 0, 1],
+    [1, 0, 1, 0, 1, 0],
+    [0, 1, 0, 1, 0, 1],
+    [1, 0, 1, 0, 1, 0],
+    [0, 1, 0, 1, 0, 1],
+    [1, 0, 1, 0, 1, 0],
+])
+
+tripod_coupling_weights = (tripod_phase_biases > 0) * 10
+
+
+tetrapod_phase_biases = np.array(
+    [
+        [0, 1, 2, 2, 0, 1],
+        [2, 0, 1, 1, 2, 0],
+        [1, 2, 0, 0, 1, 2],
+        [1, 2, 0, 0, 1, 2],
+        [0, 1, 2, 2, 0, 1],
+        [2, 0, 1, 1, 2, 0],
+    ]
+) * (2 * np.pi / 3)
+
+tetrapod_coupling_weights = (tetrapod_phase_biases > 0) * 10
+
+# legs lift one at a time, back-to-front wave
+wave_phase_biases = np.array([
+    [0, 1, 2, 3, 4, 5],
+    [5, 0, 1, 2, 3, 4],
+    [4, 5, 0, 1, 2, 3],
+    [3, 4, 5, 0, 1, 2],
+    [2, 3, 4, 5, 0, 1],
+    [1, 2, 3, 4, 5, 0],
+]) * (2 * np.pi / 6)
+
+wave_copling_weights = (wave_phase_biases > 0) * 10
 
 class Controller:
     def __init__(self, sim: MiniprojectSimulation):
         from flygym.examples.locomotion import TurningController
-        self.turning_controller = TurningController(sim.timestep)
+        self.turning_controller = TurningController(sim.timestep, phase_biases=tetrapod_phase_biases,coupling_weights= tripod_coupling_weights)
+        self.turning_controller2 = TurningController(sim.timestep, phase_biases=wave_phase_biases,coupling_weights= wave_copling_weights)
+        self.turning_controller3 = TurningController(sim.timestep, phase_biases=tripod_phase_biases,coupling_weights= tripod_coupling_weights)
         self.olfaction_smooth = None
 
     def step(self, sim: MiniprojectSimulation):
@@ -102,5 +140,8 @@ class Controller:
         else:
             drives = odor_drives        # normal navigation
 
-        joint_angles, adhesion = self.turning_controller.step(drives)
+        drives = np.array([1.0, 1.0])   # overall speed scaling
+        joint_angles, adhesion = self.turning_controller3.step(drives)
+
+            
         return joint_angles, adhesion

@@ -135,7 +135,7 @@ class MiniprojectSimulation(Simulation):
     ):
         self.enable_terrain = level in (1, 2, 3)
         self.enable_grass = level in (2,)
-        self.enable_wind = level in (3,)
+        self.enable_wind = level in (3,4)
         self.enable_dragonfly = level in (4,)
         rng = np.random.default_rng(seed)
         self.rng = rng
